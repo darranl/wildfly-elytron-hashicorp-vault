@@ -6,6 +6,8 @@ package org.wildfly.security.hashicorp.vault;
 
 import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger.ROOT_LOGGER;
 
+import java.util.Objects;
+
 import org.wildfly.security.credential.store.CredentialStoreException;
 
 /**
@@ -151,6 +153,19 @@ class VaultAlias extends VaultPath {
      */
     public int getKvVersion() throws CredentialStoreException {
         return engineTypeToVersion(getEngineType());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+        VaultAlias that = (VaultAlias) o;
+        return Objects.equals(keyPath, that.keyPath);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), keyPath);
     }
 
     /**

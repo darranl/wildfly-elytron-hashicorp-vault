@@ -87,8 +87,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
     private String trustStorePass;
     private SSLContext sslContext;
 
-    /** In-memory LRU cache of retrieved credentials, keyed by credential alias (e.g. "path.key"). */
-    private Map<String, Credential> credentialCache;
+    /** In-memory LRU cache of retrieved credentials, keyed by parsed VaultAlias. */
+    private Map<VaultAlias, Credential> credentialCache;
 
     /** Whether to support legacy alias format (secret-path.key). Defaults to false. */
     private boolean supportLegacyAliasFormat = false;
@@ -149,9 +149,9 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             this.defaultMountPath = attributes.get("default-mount-path");
         }
 
-        this.credentialCache = Collections.synchronizedMap(new LinkedHashMap<String, Credential>(16, 0.75f, true) {
+        this.credentialCache = Collections.synchronizedMap(new LinkedHashMap<VaultAlias, Credential>(16, 0.75f, true) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Credential> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<VaultAlias, Credential> eldest) {
                 return size() > DEFAULT_CREDENTIAL_CACHE_MAX_SIZE;
             }
         });
@@ -239,7 +239,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
                 throw ROOT_LOGGER.failedToExtractPasswordFromCredential();
             }
             vaultConnector.putSecretData(alias, new String(chars));
-            putInCredentialCache(credentialAlias, credential);
+            putInCredentialCache(alias, credential);
         } catch (ClassCastException e) {
             throw ROOT_LOGGER.onlyPasswordCredentialWithClearPasswordSupported(e);
         }
@@ -254,16 +254,16 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             throw ROOT_LOGGER.credentialAliasRequired();
         }
 
-        // Check cache first
+        VaultAlias alias = parseAlias(credentialAlias);
+
+        // Check cache first using the parsed VaultAlias as key
         Credential cached;
         synchronized (credentialCache) {
-            cached = credentialCache.get(credentialAlias);
+            cached = credentialCache.get(alias);
         }
         if (credentialType.isInstance(cached)) {
             return credentialType.cast(cached);
         }
-
-        VaultAlias alias = parseAlias(credentialAlias);
 
         try {
             // Retrieve full secret data from Vault
@@ -280,7 +280,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
 
             // Create credential from the value
             PasswordCredential credential = new PasswordCredential(ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR, value.toCharArray()));
-            putInCredentialCache(credentialAlias, credential);
+            putInCredentialCache(alias, credential);
             return credentialType.cast(credential);
         } catch (ClassCastException e) {
             throw ROOT_LOGGER.unsupportedCredentialType(credentialType.getSimpleName(), e);
@@ -300,9 +300,9 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
 
         vaultConnector.removeSecretData(alias);
         synchronized (credentialCache) {
-            // Remove from cache - just this specific alias
+            // Remove from cache using parsed VaultAlias as key
             // Note: If the removal empties the secret, other keys at same path are also removed from Vault
-            credentialCache.remove(credentialAlias);
+            credentialCache.remove(alias);
         }
     }
 
@@ -323,7 +323,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
         );
     }
 
-    private void putInCredentialCache(String alias, Credential credential) {
+    private void putInCredentialCache(VaultAlias alias, Credential credential) {
         synchronized (credentialCache) {
             credentialCache.put(alias, credential);
         }
