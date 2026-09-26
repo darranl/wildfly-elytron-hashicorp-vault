@@ -215,12 +215,6 @@
                         <includes>
                             <include>**/*TestCase.java</include>
                         </includes>
-                        <systemPropertyVariables>
-                            <!-- Passed through to the forked JVM so JvmToolchainVerificationTestCase
-                                 can assert the correct JDK is actually running the tests. -->
-                            <jdk.test.version>${jdk.test.version}</jdk.test.version>
-                            <jdk.test.vendor>${jdk.test.vendor}</jdk.test.vendor>
-                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
 
@@ -258,6 +252,39 @@
     </pluginRepositories>
 
     <profiles>
+        <!-- Profile activated automatically when -Djdk.test.version=<ver> is supplied.
+             Adds <jdkToolchain> to the default Surefire execution so the tests are forked
+             on the requested JDK.  When jdk.test.version is absent (plain mvn test) this
+             profile is inactive and Surefire uses whatever JAVA_HOME points to. -->
+        <profile>
+            <id>toolchain-test</id>
+            <activation>
+                <property>
+                    <name>jdk.test.version</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <jdkToolchain>
+                                <version>${jdk.test.version}</version>
+                                <vendor>${jdk.test.vendor}</vendor>
+                            </jdkToolchain>
+                            <systemPropertyVariables>
+                                <!-- Passed through to the forked JVM so JvmToolchainVerificationTestCase
+                                     can assert the correct JDK is actually running the tests. -->
+                                <jdk.test.version>${jdk.test.version}</jdk.test.version>
+                                <jdk.test.vendor>${jdk.test.vendor}</jdk.test.vendor>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!-- Profile for comprehensive multi-version testing -->
         <!-- Tests with Java 17, 21, and 25 sequentially -->
         <!-- Usage: mvn install -Ptest-all-versions -->
