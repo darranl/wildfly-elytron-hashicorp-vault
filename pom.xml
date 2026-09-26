@@ -215,6 +215,12 @@
                         <includes>
                             <include>**/*TestCase.java</include>
                         </includes>
+                        <systemPropertyVariables>
+                            <!-- Passed through to the forked JVM so JvmToolchainVerificationTestCase
+                                 can assert the correct JDK is actually running the tests. -->
+                            <jdk.test.version>${jdk.test.version}</jdk.test.version>
+                            <jdk.test.vendor>${jdk.test.vendor}</jdk.test.vendor>
+                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
 
