@@ -749,6 +749,17 @@ public class HashicorpVaultCredentialStoreTestCase {
                 () -> store.getAliases("secret/"));
     }
 
+    /**
+     * Call no-arg {@code getAliases()} on a credential store that has not been initialized.
+     * Test passes when {@link CredentialStoreException} is thrown.
+     */
+    @Test
+    public void testNoArgGetAliasesNotInitialized() {
+        HashicorpVaultCredentialStore store = new HashicorpVaultCredentialStore();
+        assertThrows(CredentialStoreException.class,
+                () -> store.getAliases());
+    }
+
     // =====================================================================
     // Path format tests for getAliases() - PR #71 implementation
     // =====================================================================
@@ -815,6 +826,21 @@ public class HashicorpVaultCredentialStoreTestCase {
         // Verify they contain expected aliases
         assertTrue(aliases1.contains("#testing1?top_secret"));
         assertTrue(aliases1.contains("#testing2?dbuser"));
+    }
+
+    /**
+     * Test no-arg getAliases() lists from the root of the default mount.
+     */
+    @Test
+    public void testNoArgGetAliasesDefaultMount() throws Exception {
+        vaultTestContainer = startVaultTestContainer();
+        HashicorpVaultCredentialStore cs = createHashicorpVaultCredentialStore();
+
+        Set<String> aliases = cs.getAliases();
+        assertNotNull(aliases);
+        assertTrue(aliases.contains("#testing1?top_secret"), "Should contain #testing1?top_secret");
+        assertTrue(aliases.contains("#testing2?dbuser"), "Should contain #testing2?dbuser");
+        assertTrue(aliases.contains("#testing2?jmsuser"), "Should contain #testing2?jmsuser");
     }
 
     /**
