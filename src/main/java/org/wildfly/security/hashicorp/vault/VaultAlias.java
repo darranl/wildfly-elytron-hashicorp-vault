@@ -4,9 +4,8 @@
  */
 package org.wildfly.security.hashicorp.vault;
 
+import static org.wildfly.common.Assert.checkNotNullParam;
 import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger.ROOT_LOGGER;
-
-import org.wildfly.common.Assert;
 import org.wildfly.security.credential.store.CredentialStoreException;
 
 /**
@@ -63,10 +62,10 @@ class VaultAlias extends VaultPath {
      */
     static VaultAlias create(String engineType, String mountPath, String secretPath, String keyPath) throws CredentialStoreException {
         // Validate required parameters - null checks
-        Assert.checkNotNullParam("engineType", engineType);
-        Assert.checkNotNullParam("mountPath", mountPath);
-        Assert.checkNotNullParam("secretPath", secretPath);
-        Assert.checkNotNullParam("keyPath", keyPath);
+        checkNotNullParam("engineType", engineType);
+        checkNotNullParam("mountPath", mountPath);
+        checkNotNullParam("secretPath", secretPath);
+        checkNotNullParam("keyPath", keyPath);
 
         // Business validation - empty checks
         if (engineType.isEmpty()) {

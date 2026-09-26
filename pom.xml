@@ -30,6 +30,7 @@
         <jdk.test.version>25</jdk.test.version>
         <jdk.test.vendor>temurin</jdk.test.vendor>
         <version.wildfly.elytron>2.8.3.Final</version.wildfly.elytron>
+        <version.wildfly.common>2.0.1</version.wildfly.common>
         <version.vault.java.driver>6.2.1</version.vault.java.driver>
         <version.metainf-services>1.11</version.metainf-services>
         <version.org.testcontainers>2.0.2</version.org.testcontainers>
@@ -109,7 +110,7 @@
         <dependency>
             <groupId>org.wildfly.common</groupId>
             <artifactId>wildfly-common</artifactId>
-            <version>2.0.1</version>
+            <version>${version.wildfly.common}</version>
         </dependency>
 
         <dependency>

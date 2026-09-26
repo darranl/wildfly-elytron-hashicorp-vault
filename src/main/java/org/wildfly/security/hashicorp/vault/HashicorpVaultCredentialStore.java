@@ -4,6 +4,7 @@
  */
 package org.wildfly.security.hashicorp.vault;
 
+import static org.wildfly.common.Assert.checkNotNullParam;
 import static org.wildfly.security.credential.store._private.ElytronMessages.log;
 import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger.ROOT_LOGGER;
 
@@ -19,8 +20,6 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.net.ssl.SSLContext;
-
-import org.wildfly.common.Assert;
 import org.wildfly.security.credential.Credential;
 import org.wildfly.security.credential.PasswordCredential;
 import org.wildfly.security.credential.store.CredentialStore;
@@ -103,7 +102,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
 
     @Override
     public void initialize(Map<String, String> attributes, CredentialStore.ProtectionParameter protectionParameter, Provider[] providers) throws CredentialStoreException {
-        Assert.checkNotNullParam("attributes", attributes);
+        checkNotNullParam("attributes", attributes);
 
         // Check required attributes
         this.hostAddress = attributes.get("host-address");

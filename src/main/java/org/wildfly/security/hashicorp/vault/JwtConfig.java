@@ -4,9 +4,8 @@
  */
 package org.wildfly.security.hashicorp.vault;
 
+import static org.wildfly.common.Assert.checkNotNullParam;
 import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger.ROOT_LOGGER;
-
-import org.wildfly.common.Assert;
 import org.wildfly.common.annotation.NotNull;
 
 /**
@@ -25,7 +24,7 @@ public final class JwtConfig {
     }
 
     private String checkRequired(String paramName, String value) throws IllegalArgumentException {
-        Assert.checkNotNullParam(paramName, value);
+        checkNotNullParam(paramName, value);
         if (value.trim().isEmpty()) {
             throw new IllegalArgumentException("Parameter '" + paramName + "' must not be empty or blank");
         }
