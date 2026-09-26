@@ -8,6 +8,7 @@ import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.util.Objects;
 
 import org.wildfly.security.credential.store.CredentialStoreException;
 
@@ -75,7 +76,7 @@ class VaultPath {
         }
 
         // Validate engine type
-        if (!engineType.equals("KVv1") && !engineType.equals("KVv2")) {
+        if (!engineType.equals(VaultConstants.ENGINE_TYPE_KV_V1) && !engineType.equals(VaultConstants.ENGINE_TYPE_KV_V2)) {
             throw ROOT_LOGGER.invalidEngineType(engineType);
         }
 
@@ -255,7 +256,7 @@ class VaultPath {
         secretPath = urlDecode(secretPath);
 
         // 6. Validate engine type after URL decoding
-        if (!engineType.equals("KVv1") && !engineType.equals("KVv2")) {
+        if (!engineType.equals(VaultConstants.ENGINE_TYPE_KV_V1) && !engineType.equals(VaultConstants.ENGINE_TYPE_KV_V2)) {
             throw ROOT_LOGGER.invalidEngineType(engineType);
         }
 
@@ -382,5 +383,17 @@ class VaultPath {
                ", mountPath='" + mountPath + '\'' +
                ", secretPath='" + secretPath + '\'' +
                '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        VaultPath vaultPath = (VaultPath) o;
+        return Objects.equals(engineType, vaultPath.engineType) && Objects.equals(mountPath, vaultPath.mountPath) && Objects.equals(secretPath, vaultPath.secretPath);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(engineType, mountPath, secretPath);
     }
 }

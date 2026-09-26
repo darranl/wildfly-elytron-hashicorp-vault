@@ -6,6 +6,9 @@ package org.wildfly.security.hashicorp.vault;
 
 import static org.wildfly.common.Assert.checkNotNullParam;
 import static org.wildfly.security.hashicorp.vault._private.HashiCorpVaultLogger.ROOT_LOGGER;
+
+import java.util.Objects;
+
 import org.wildfly.security.credential.store.CredentialStoreException;
 
 /**
@@ -82,7 +85,7 @@ class VaultAlias extends VaultPath {
         }
 
         // Validate engine type
-        if (!engineType.equals("KVv1") && !engineType.equals("KVv2")) {
+        if (!engineType.equals(VaultConstants.ENGINE_TYPE_KV_V1) && !engineType.equals(VaultConstants.ENGINE_TYPE_KV_V2)) {
             throw ROOT_LOGGER.invalidEngineType(engineType);
         }
 
@@ -104,7 +107,7 @@ class VaultAlias extends VaultPath {
      * @throws CredentialStoreException if the alias format is invalid
      */
     public static VaultAlias parse(String alias) throws CredentialStoreException {
-        return parse(alias, "KVv2", "secret", false);
+        return parse(alias, VaultConstants.ENGINE_TYPE_KV_V2, VaultConstants.DEFAULT_MOUNT_PATH, false);
     }
 
     /**
@@ -159,6 +162,19 @@ class VaultAlias extends VaultPath {
         return engineTypeToVersion(getEngineType());
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+        VaultAlias that = (VaultAlias) o;
+        return Objects.equals(keyPath, that.keyPath);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), keyPath);
+    }
+
     /**
      * Convert an engine type string to a KV version number.
      * This is a utility method that can be used without creating a VaultAlias instance.
@@ -172,9 +188,9 @@ class VaultAlias extends VaultPath {
             throw ROOT_LOGGER.invalidEngineType("null");
         }
         switch (engineType) {
-            case "KVv1":
+            case VaultConstants.ENGINE_TYPE_KV_V1:
                 return 1;
-            case "KVv2":
+            case VaultConstants.ENGINE_TYPE_KV_V2:
                 return 2;
             default:
                 throw ROOT_LOGGER.invalidEngineType(engineType);
