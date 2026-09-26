@@ -358,4 +358,44 @@ public class HashicorpVaultCredentialStoreKvVersionTestCase {
         assertTrue(aliases.contains("#app1/subapp2?key3"));
         assertTrue(aliases.contains("#app1/subapp3?key4"));
     }
+
+    /**
+     * Test that no-arg getAliases() lists aliases from the configured default mount,
+     * including nested paths, and that returned aliases can be used to retrieve credentials.
+     */
+    @ParameterizedTest(name = "[{2}] No-arg getAliases at configured default mount {1}")
+    @MethodSource("kvVersionConfigurations")
+    public void testNoArgGetAliasesWithNestedSecrets(VaultContainer<?> container, String mountPath, KvVersion version) throws Exception {
+        vaultContainer = container;
+        vaultContainer.start();
+
+        HashicorpVaultCredentialStore store = createCredentialStore(vaultContainer, version, mountPath);
+
+        // Store a nested secret at depth 2 (root -> app1 -> sub1 -> db)
+        store.store("#app1/sub1/db?password", createCredentialFromPassword("nestedpass"), null);
+
+        Set<String> aliases = store.getAliases();
+        assertNotNull(aliases, String.format("Aliases should not be null for %s", version));
+
+        // Predefined initial secrets at default mount root level
+        assertTrue(aliases.contains("#testing1?top_secret"),
+            String.format("Should contain top-level alias in %s at mount %s", version, mountPath));
+        assertTrue(aliases.contains("#testing2?dbuser"),
+            String.format("Should contain top-level alias in %s at mount %s", version, mountPath));
+
+        // Nested secret
+        assertTrue(aliases.contains("#app1/sub1/db?password"),
+            String.format("Should contain nested alias across recursive levels in %s at mount %s", version, mountPath));
+
+        // Verify retrieval using the returned alias
+        PasswordCredential credential = store.retrieve(
+            "#app1/sub1/db?password",
+            PasswordCredential.class,
+            ClearPassword.ALGORITHM_CLEAR,
+            null,
+            null);
+        assertNotNull(credential, String.format("Should retrieve nested credential from %s", version));
+        assertEquals("nestedpass", String.valueOf(credential.getPassword(ClearPassword.class).getPassword()),
+            String.format("Should retrieve correct password for nested alias in %s", version));
+    }
 }

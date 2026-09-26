@@ -343,8 +343,10 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
 
     @Override
     public Set<String> getAliases() throws UnsupportedOperationException, CredentialStoreException {
-        // Use "secret/" as the default path when none provided
-        return getAliases(VaultConstants.DEFAULT_MOUNT_PATH + "/");
+        // "#" designates the root of the configured default mount.
+        // Secrets reside under the mount root rather than at the root itself, so recursive listing
+        // with DEFAULT_MAX_DEPTH is required to enumerate all aliases across descendant paths.
+        return getAliases("#", true, DEFAULT_MAX_DEPTH);
     }
 
     /**
