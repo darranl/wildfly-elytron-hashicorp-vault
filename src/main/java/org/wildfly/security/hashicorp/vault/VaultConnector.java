@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+
 import javax.net.ssl.SSLContext;
 
 import org.wildfly.security.credential.store.CredentialStoreException;
@@ -105,15 +106,28 @@ public class VaultConnector {
      * @throws CredentialStoreException thrown when all login strategies fail
      */
     private Vault tryLoginWithFallback(LoginContext loginContext, VaultConfig config) throws CredentialStoreException {
-        for (VaultLoginStrategy strategy : composePossibleLoginStrategiesPrioritized(loginContext)) {
+        List<VaultLoginStrategy> strategies = composePossibleLoginStrategiesPrioritized(loginContext);
+        if (ROOT_LOGGER.isTraceEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < strategies.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(strategies.get(i).getClass().getSimpleName());
+            }
+            ROOT_LOGGER.tracef("Starting login with fallback: %d strategies to try: [%s]", strategies.size(), sb.toString());
+        }
+
+        for (VaultLoginStrategy strategy : strategies) {
             try {
+                ROOT_LOGGER.tracef("Trying login strategy: %s", strategy.getClass().getSimpleName());
                 String response = strategy.tryLogin(loginContext);
 
                 if (response != null) {
                     config.token(response);
                     Vault vault = Vault.create(config.build());
-                    //test that token can be used to perform anything requiring authentication
                     vault.auth().lookupSelf();
+                    ROOT_LOGGER.tracef("Login succeeded with strategy: %s", strategy.getClass().getSimpleName());
                     return vault;
                 }
             } catch (VaultException e) {
@@ -207,29 +221,25 @@ public class VaultConnector {
     private synchronized Vault getOrCreateVaultInstance(int kvVersion, int segmentCount) throws CredentialStoreException {
         final String cacheKey;
         if (kvVersion == 1) {
-            // KV v1 doesn't use /data/ insertion, so segment count doesn't matter
             cacheKey = VaultConstants.ENGINE_TYPE_KV_V1;
         } else {
-            // KV v2 - need to account for mount path segment count
             cacheKey = VaultConstants.ENGINE_TYPE_KV_V2 + "-" + segmentCount;
         }
 
+        Vault cached = vaultInstanceCache.get(cacheKey);
+        if (cached != null) {
+            ROOT_LOGGER.tracef("Vault instance cache hit: cacheKey=%s", cacheKey);
+            return cached;
+        }
+
+        SensitiveValueHasher.traceLog("Creating new Vault instance: token=%s, kvVersion=%d, prefixPathDepth=%d, url=%s, namespace=%s",
+                this.token, kvVersion, segmentCount, this.vaultUrl, this.namespace);
         try {
-            return vaultInstanceCache.computeIfAbsent(cacheKey,
-                k -> {
-                    try {
-                        return createVaultInstance(kvVersion, segmentCount);
-                    } catch (VaultException | CredentialStoreException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-        } catch (RuntimeException e) {
-            // Unwrap CredentialStoreException if it was wrapped in RuntimeException
-            Throwable cause = e.getCause();
-            if (cause instanceof CredentialStoreException) {
-                throw (CredentialStoreException) cause;
-            }
-            throw e;
+            Vault instance = createVaultInstance(kvVersion, segmentCount);
+            vaultInstanceCache.put(cacheKey, instance);
+            return instance;
+        } catch (VaultException e) {
+            throw ROOT_LOGGER.failedToCreateVaultInstance(e);
         }
     }
 
@@ -347,6 +357,7 @@ public class VaultConnector {
      * @throws CredentialStoreException if listing fails
      */
     public List<String> listSecretsAtPath(String mountPath, String secretPath, String engineType) throws CredentialStoreException {
+        ROOT_LOGGER.tracef("Listing secrets at path: mountPath=%s, secretPath=%s, engineType=%s", mountPath, secretPath, engineType);
         try {
             // For KV v2, the Vault library automatically adds /metadata/ when listing
             // So we just pass mount + secret path, and it constructs the full path
@@ -367,6 +378,8 @@ public class VaultConnector {
 
             if (status == 200) {
                 List<String> keys = response.getListData();
+                int count = keys != null ? keys.size() : 0;
+                ROOT_LOGGER.tracef("Listed %d secrets at path: mountPath=%s, secretPath=%s", count, mountPath, secretPath);
                 return keys != null ? keys : new ArrayList<>();
             } else if (status == 404) {
                 // Path doesn't exist or is empty

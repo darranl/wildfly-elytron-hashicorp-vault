@@ -299,4 +299,7 @@ public interface HashiCorpVaultLogger extends BasicLogger {
 
     @Message(id = 81, value = "Failed to build Vault TLS configuration")
     IOException failedToBuildVaultTlsConfiguration(@Cause Exception e);
+
+    @Message(id = 82, value = "Failed to create Vault instance")
+    CredentialStoreException failedToCreateVaultInstance(@Cause Exception e);
 }

@@ -148,6 +148,9 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             this.defaultMountPath = attributes.get("default-mount-path");
         }
 
+        ROOT_LOGGER.tracef("Credential store initializing: host=%s, namespace=%s, defaultEngineType=%s, defaultMountPath=%s, supportLegacyAliasFormat=%b",
+                this.hostAddress, this.namespace, this.defaultEngineType, this.defaultMountPath, this.supportLegacyAliasFormat);
+
         this.credentialCache = Collections.synchronizedMap(new LinkedHashMap<VaultAlias, Credential>(16, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<VaultAlias, Credential> eldest) {
@@ -161,6 +164,9 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             boolean hasToken = token != null && !token.trim().isEmpty();
             boolean hasClientCertConfig = this.sslContext != null
                     || (this.keyStorePath != null && !this.keyStorePath.trim().isEmpty());
+            SensitiveValueHasher.traceLog("Authentication method determined: token=%s, hasToken=%b, hasClientCertConfig=%b",
+                    token, hasToken, hasClientCertConfig);
+
             if (!hasToken && !hasClientCertConfig) {
                 throw ROOT_LOGGER.noAuthenticationMethodConfigured();
             }
@@ -168,6 +174,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             SslConfig sslConfig = new SslConfig().verify(true);
 
             if (this.keyStorePath != null && !this.keyStorePath.trim().isEmpty()) {
+                SensitiveValueHasher.traceLog("Loading KeyStore: password=%s, path=%s",
+                        this.keyStorePass, this.keyStorePath);
                 try {
                     KeyStore keyStore = KeyStore.getInstance("JKS");
                     try (java.io.FileInputStream fis = new java.io.FileInputStream(this.keyStorePath)) {
@@ -185,6 +193,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             }
 
             if (this.trustStorePath != null && !this.trustStorePath.trim().isEmpty()) {
+                SensitiveValueHasher.traceLog("Loading TrustStore: password=%s, path=%s",
+                        this.trustStorePass, this.trustStorePath);
                 try {
                     KeyStore trustStore = KeyStore.getInstance("JKS");
                     try (java.io.FileInputStream fis = new java.io.FileInputStream(this.trustStorePath)) {
@@ -209,6 +219,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             vaultConnector.configure();
 
             initialized = true;
+            ROOT_LOGGER.tracef("Credential store initialized successfully for host: %s", this.hostAddress);
         } catch (IOException e) {
             throw ROOT_LOGGER.failedToInitializeVaultCredentialStore(e);
         }
@@ -236,6 +247,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
         }
 
         VaultAlias alias = parseAlias(credentialAlias);
+        ROOT_LOGGER.tracef("Storing credential: alias=%s (mount=%s, path=%s, key=%s)",
+                credentialAlias, alias.getMountPath(), alias.getSecretPath(), alias.getKeyPath());
 
         try {
             final char[] chars = credential.castAndApply(PasswordCredential.class, c -> c.getPassword().castAndApply(ClearPassword.class, ClearPassword::getPassword));
@@ -244,6 +257,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             }
             vaultConnector.putSecretData(alias, new String(chars));
             putInCredentialCache(alias, credential);
+            ROOT_LOGGER.tracef("Credential stored successfully: alias=%s", credentialAlias);
         } catch (ClassCastException e) {
             throw ROOT_LOGGER.onlyPasswordCredentialWithClearPasswordSupported(e);
         }
@@ -259,6 +273,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
         }
 
         VaultAlias alias = parseAlias(credentialAlias);
+        ROOT_LOGGER.tracef("Retrieving credential: alias=%s, requestedType=%s", credentialAlias, credentialType.getSimpleName());
 
         // Check cache first using the parsed VaultAlias as key
         Credential cached;
@@ -266,25 +281,30 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             cached = credentialCache.get(alias);
         }
         if (credentialType.isInstance(cached)) {
+            ROOT_LOGGER.tracef("Credential cache hit: alias=%s", credentialAlias);
             return credentialType.cast(cached);
         }
 
+        ROOT_LOGGER.tracef("Credential cache miss: alias=%s, fetching from vault", credentialAlias);
         try {
             // Retrieve full secret data from Vault
             Map<String, Object> secretData = vaultConnector.getSecretData(alias);
             if (secretData == null) {
-                return null; // Secret not found
+                ROOT_LOGGER.tracef("Credential not found: alias=%s, reason=%s", credentialAlias, "secret not found at path");
+                return null;
             }
 
             // Resolve the specific value using key path
             String value = VaultKeyPathOperations.resolveKeyPath(secretData, alias.getKeyPath());
             if (value == null) {
-                return null; // Key not found in secret
+                ROOT_LOGGER.tracef("Credential not found: alias=%s, reason=%s", credentialAlias, "key not found in secret");
+                return null;
             }
 
             // Create credential from the value
             PasswordCredential credential = new PasswordCredential(ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR, value.toCharArray()));
             putInCredentialCache(alias, credential);
+            ROOT_LOGGER.tracef("Credential retrieved successfully: alias=%s", credentialAlias);
             return credentialType.cast(credential);
         } catch (ClassCastException e) {
             throw ROOT_LOGGER.unsupportedCredentialType(credentialType.getSimpleName(), e);
@@ -301,6 +321,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
         }
 
         VaultAlias alias = parseAlias(credentialAlias);
+        ROOT_LOGGER.tracef("Removing credential: alias=%s (mount=%s, path=%s, key=%s)",
+                credentialAlias, alias.getMountPath(), alias.getSecretPath(), alias.getKeyPath());
 
         vaultConnector.removeSecretData(alias);
         synchronized (credentialCache) {
@@ -308,6 +330,7 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             // Note: If the removal empties the secret, other keys at same path are also removed from Vault
             credentialCache.remove(alias);
         }
+        ROOT_LOGGER.tracef("Credential removed successfully: alias=%s", credentialAlias);
     }
 
     /**
@@ -524,8 +547,11 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
     }
 
     private Set<String> collectAliases(String path, boolean recursive, int maxDepth, int maxNumberOfAliases) throws CredentialStoreException {
+        ROOT_LOGGER.tracef("Listing aliases: path=%s, recursive=%b, maxDepth=%d, maxAliases=%d",
+                path, recursive, maxDepth, maxNumberOfAliases);
         Set<String> aliases = new HashSet<>();
         collectAliasesRecursive(path, aliases, recursive, maxDepth, 0, maxNumberOfAliases);
+        ROOT_LOGGER.tracef("Alias listing completed: %d aliases found", aliases.size());
         return aliases;
     }
 
@@ -558,6 +584,8 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
      * @throws CredentialStoreException if listing fails or path format is invalid
      */
     private void collectAliasesRecursive(String path, Set<String> aliases, boolean recursive, int maxDepth, int currentDepth, int maxNumberOfAliases) throws CredentialStoreException {
+        ROOT_LOGGER.tracef("Collecting aliases: path=%s, currentDepth=%d/%d, collected=%d/%d",
+                path, currentDepth, maxDepth, aliases.size(), maxNumberOfAliases);
         if (aliases.size() >= maxNumberOfAliases) {
             return;
         }
