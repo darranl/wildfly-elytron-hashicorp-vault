@@ -113,12 +113,11 @@ public class VaultCredentialSource implements CredentialSource {
      *   <li>{@link #VaultCredentialSource(VaultConnector, String, String, String, String)} - with explicit components</li>
      * </ul>
      * <p>
-     * This constructor maintains backwards compatibility by converting the legacy path/key
-     * format to the new alias format internally. The conversion assumes:
+     * This constructor preserves the literal key lookup used in 1.0.1.Final. The conversion assumes:
      * <ul>
      *   <li>Default engine type: KVv2</li>
      *   <li>Default mount path: secret</li>
-     *   <li>Alias format: {@code secretPath?secretKey}</li>
+     *   <li>The secret key is used verbatim, including any {@code /}, {@code %}, or {@code +}</li>
      * </ul>
      *
      * @param vaultConnector the service connecting to vault instance (must not be {@code null})
@@ -154,7 +153,7 @@ public class VaultCredentialSource implements CredentialSource {
                 actualSecretPath = secretPath.substring(firstSlash + 1);
             }
 
-            this.alias = VaultAlias.create(VaultConstants.ENGINE_TYPE_KV_V2, mountPath, actualSecretPath, secretKey);
+            this.alias = VaultAlias.createWithLiteralKey(VaultConstants.ENGINE_TYPE_KV_V2, mountPath, actualSecretPath, secretKey);
         } catch (CredentialStoreException e) {
             throw new IllegalArgumentException("Failed to convert legacy path/key to alias format: " + e.getMessage(), e);
         }

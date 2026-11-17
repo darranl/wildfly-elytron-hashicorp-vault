@@ -73,6 +73,36 @@ Convert your aliases one at a time, testing each conversion:
 | `app.config.key` | `app.config?key` | Dots in secret path |
 | `my.app.db.pass` | `my.app.db?pass` | Multiple dots in path |
 
+#### Legacy Literal Keys and Release Candidate Compatibility
+
+With `support-legacy-alias-format=true`, a dot-separated alias retains the literal key lookup used in
+`1.0.1.Final`. Its key is not URL-decoded, and slashes in its key do not traverse JSON.
+Secret paths retain their existing parsing rules.
+The last dot separates the secret path from the key; support for dots in the secret path is retained.
+
+When migrating, encode literal names for the new syntax instead of just replacing the dot with `?`:
+
+| Legacy alias | Equivalent new alias | Literal key |
+|--------------|----------------------|-------------|
+| `app.database/host` | `#app?database%2Fhost` | `database/host` |
+| `app.database%2Fhost` | `#app?database%252Fhost` | `database%2Fhost` |
+| `app.a+b` | `#app?a%2Bb` | `a+b` |
+| `app.a%20b` | `#app?a%2520b` | `a%20b` |
+
+The `1.1.0.CR1` through `1.1.0.CR3` releases instead decoded legacy keys and interpreted `/` as nested traversal.
+If a configuration intentionally relied on that intervening behavior, migrate it to the new format explicitly:
+
+- Both `app.database/host` and `app.database%2Fhost` selected nested `database` → `host` in those releases;
+  use `#app?database/host` to retain that selection.
+- Both `app.a+b` and `app.a%20b` selected the key `a b`; use `#app?a%20b` to retain that selection.
+
+There is no fallback from a missing literal key to a nested or decoded interpretation: such a fallback could
+select another credential when both names exist. New-format escaping and traversal rules are unchanged, and
+new-format aliases work with legacy support either enabled or disabled. Legacy support remains disabled by default.
+
+The deprecated Java constructor `VaultCredentialSource(connector, secretPath, secretKey)` also treats `secretKey`
+literally. The newer alias-string and explicit-component constructors retain their documented key-path semantics.
+
 #### Nested JSON Conversions
 
 If your Vault secrets contain nested JSON, you can now access nested values:

@@ -130,8 +130,7 @@ class VaultPath {
             // No ? found - check for legacy dot-separated format
             if (!hasNewFormatIndicators) {
                 // No new format indicators - might be legacy format. The key is the part after the last dot,
-                // wherever that is. This matches 1.1.0.CR3 exactly, including for aliases such as "my.app/config"
-                // (secret "my", key "app/config"), because existing configurations may depend on it.
+                // wherever that is. For "my.app/config", the secret is "my" and the literal key is "app/config".
                 int lastDot = input.lastIndexOf('.');
                 if (lastDot != -1) {
                     if (supportLegacyFormat) {
@@ -141,11 +140,11 @@ class VaultPath {
                         legacyAliasFormatUsed = true;
 
                         // Convert to new format for logging
-                        String newFormat = path + "?" + keyPath;
+                        String newFormat = toAlias(urlDecode(path), keyPath);
                         ROOT_LOGGER.legacyAliasFormatDeprecated(input, newFormat);
                     } else {
                         // Legacy format detected but not supported
-                        String newFormat = input.substring(0, lastDot) + "?" + input.substring(lastDot + 1);
+                        String newFormat = toAlias(urlDecode(input.substring(0, lastDot)), input.substring(lastDot + 1));
                         throw ROOT_LOGGER.legacyAliasFormatNotSupported(input, newFormat);
                     }
                 } else {
@@ -158,9 +157,8 @@ class VaultPath {
             }
         }
 
-        // Now parse the path part
-        // If we used legacy alias format (dot-separated), don't allow legacy path format (slash-separated)
-        // to avoid double-parsing (e.g., "mount/secret.key" shouldn't be parsed as mount twice)
+        // Dot-separated aliases already identify a secret within the configured mount. Do not also
+        // interpret their path as the separate legacy mount/secret syntax used for path-only requests.
         boolean allowLegacyPathFormat = supportLegacyFormat && !legacyAliasFormatUsed;
         return parsePathPart(path, keyPath, defaultEngineType, defaultMountPath, allowLegacyPathFormat, requireKey,
                 legacyAliasFormatUsed, resultClass);
@@ -274,9 +272,9 @@ class VaultPath {
             }
             // New format: split on the raw (still encoded) key path so that an encoded %2F stays inside a
             // segment as a literal slash while an unencoded / separates nested segments.
-            // Legacy format: decode first and then split, exactly as 1.1.0.CR3 did, so that a legacy key
-            // such as "k%2Fz" is still read as the nested path k/z and existing configurations keep working.
-            String[] rawSegments = (legacyKey ? urlDecode(keyPath) : keyPath).split("/", -1);
+            // Legacy keys were passed verbatim to the data map in 1.0.1.Final. Keep the whole key as one
+            // segment: neither a slash nor a percent escape changes its meaning.
+            String[] rawSegments = legacyKey ? new String[] {keyPath} : keyPath.split("/", -1);
             if (rawSegments.length > 1) {
                 for (String rawSegment : rawSegments) {
                     if (rawSegment.isEmpty()) {

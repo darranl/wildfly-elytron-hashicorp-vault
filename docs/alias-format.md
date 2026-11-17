@@ -396,13 +396,19 @@ The implementation automatically detects the format:
 
 - **New format** if alias contains: `?`, `#`, `@`, or starts with `engine=`
 - **Legacy format** if none of the above indicators are present AND the alias contains a dot (`.`). The alias is split
-  on its **last** dot, wherever that is, as it always has been. In `my.app/config` the last dot is before the slash,
-  so the secret is `my` and the key path is `app/config`. Prefer the new format for such names, for example
+  on its **last** dot, wherever that is. In `my.app/config` the last dot is before the slash,
+  so the secret is `my` and the literal key is `app/config`. Prefer the new format for such names, for example
   `my.app/config?key`.
 
-A legacy alias is URL-decoded exactly as it was before: `+` becomes a space and `%xx` is decoded, and the legacy key
-is decoded **before** it is split on `/`. So in a legacy alias `%2F` in the key is nested traversal, unlike the new
-format where `%2F` in a key path is a literal slash. This is kept so that existing configurations behave as they did.
+The key of a legacy alias is used literally, preserving the key lookup from `1.0.1.Final`.
+There is no URL decoding or nested JSON traversal of the key: `/`, `%xx`, and `+` are part of its name.
+Secret paths retain their existing parsing rules.
+The new format continues to split on raw `/` before decoding each segment once, regardless of whether legacy
+support is enabled.
+
+The `1.1.0` release candidates through `CR3` decoded legacy keys and treated slashes in them as traversal.
+That behavior was a compatibility regression. Configurations relying on it should use explicit new-format aliases;
+see [the migration guide](migration.md#legacy-literal-keys-and-release-candidate-compatibility).
 
 **Important:** Legacy format support must be explicitly enabled via the `support-legacy-alias-format` configuration parameter. When disabled (default in stable releases), aliases without new format indicators will be rejected with an error message providing the correct new format.
 
@@ -413,7 +419,11 @@ format where `%2F` in a key path is a literal slash. This is kept so that existi
 | `myapp/db.password` | `myapp/db?password` | Simple key |
 | `app.config.key` | `app.config?key` | Dots in secret path |
 | `my.app.db.pass` | `my.app.db?pass` | Multiple dots |
-| `app/config.key` | `app?config/key` | Nested key path |
+| `app/config.key` | `#app/config?key` | Secret path containing a slash |
+| `app.database/host` | `#app?database%2Fhost` | Literal slash in key |
+| `app.database%2Fhost` | `#app?database%252Fhost` | Literal percent escape in key |
+| `app.a+b` | `#app?a%2Bb` | Literal plus in key |
+| `app.a%20b` | `#app?a%2520b` | Literal percent escape in key |
 
 See [migration.md](migration.md) for detailed migration guidance.
 

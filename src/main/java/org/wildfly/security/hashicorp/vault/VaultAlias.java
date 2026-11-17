@@ -83,6 +83,20 @@ class VaultAlias extends VaultPath {
      * @throws CredentialStoreException if the engine type is invalid or any required component is null/empty
      */
     static VaultAlias create(String engineType, String mountPath, String secretPath, String keyPath) throws CredentialStoreException {
+        return create(engineType, mountPath, secretPath, keyPath, false);
+    }
+
+    /**
+     * Create an alias whose key is a single literal map key, as in 1.0.1.Final.
+     * Neither the secret path nor the key is URL-decoded; slashes in the key are literal.
+     */
+    static VaultAlias createWithLiteralKey(String engineType, String mountPath, String secretPath, String key)
+            throws CredentialStoreException {
+        return create(engineType, mountPath, secretPath, key, true);
+    }
+
+    private static VaultAlias create(String engineType, String mountPath, String secretPath, String keyPath,
+                                     boolean literalKey) throws CredentialStoreException {
         // Validate required parameters - null checks
         checkNotNullParam("engineType", engineType);
         checkNotNullParam("mountPath", mountPath);
@@ -109,13 +123,14 @@ class VaultAlias extends VaultPath {
         }
 
         // Validate key path doesn't contain empty segments (if using nested path syntax)
-        if (keyPath.contains("/")) {
+        if (!literalKey && keyPath.contains("/")) {
             if (keyPath.startsWith("/") || keyPath.endsWith("/") || keyPath.contains("//")) {
                 throw ROOT_LOGGER.keyPathContainsEmptySegment(keyPath);
             }
         }
 
-        return new VaultAlias(engineType, mountPath, secretPath, keyPath);
+        return literalKey ? new VaultAlias(engineType, mountPath, secretPath, List.of(keyPath))
+                : new VaultAlias(engineType, mountPath, secretPath, keyPath);
     }
 
     /**

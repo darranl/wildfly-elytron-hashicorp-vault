@@ -141,7 +141,9 @@ For complete alias format documentation, see [`docs/alias-format.md`](docs/alias
 
 #### Legacy Format Support
 
-The legacy format (`secret-path.key`) is supported for backward compatibility when `support-legacy-alias-format` is enabled. See [`docs/migration.md`](docs/migration.md) for migration guidance.
+The legacy format (`secret-path.key`) is supported for backward compatibility when `support-legacy-alias-format` is enabled (default: disabled).
+Legacy keys are literal, preserving `1.0.1.Final` key lookup; `/`, `%`, and `+` in a key are not interpreted.
+See [`docs/migration.md`](docs/migration.md#legacy-literal-keys-and-release-candidate-compatibility) for migration guidance, including configurations that relied on the intervening release-candidate behavior.
 
 #### Using Credentials
 
