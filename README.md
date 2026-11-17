@@ -141,7 +141,14 @@ For complete alias format documentation, see [`docs/alias-format.md`](docs/alias
 
 #### Legacy Format Support
 
-The legacy format (`secret-path.key`) is supported for backward compatibility when `support-legacy-alias-format` is enabled. See [`docs/migration.md`](docs/migration.md) for migration guidance.
+The legacy format (`mount/secret-path.key`) is supported when `support-legacy-alias-format` is enabled (default: disabled).
+It preserves `1.0.1.Final` mount selection and literal keys, including `/`, `%`, `+`, `?`, `#`, and `@` in the key.
+For example, `secret/myapp.database_password` still selects `database_password` in `myapp` under mount `secret`.
+
+During migration, prefer explicit new aliases such as `@secret#myapp?database_password`. These have the same
+meaning with legacy support on or off. Unprefixed dot aliases take legacy precedence when compatibility is enabled;
+`?` inside a legacy key does not switch formats. See the [migration guide](docs/migration.md) for the precise
+format boundary, path encoding, and release-candidate compatibility.
 
 #### Using Credentials
 

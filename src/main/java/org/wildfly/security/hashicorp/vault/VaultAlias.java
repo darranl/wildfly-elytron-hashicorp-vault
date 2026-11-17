@@ -39,6 +39,8 @@ import org.wildfly.security.credential.store.CredentialStoreException;
  */
 class VaultAlias extends VaultPath {
 
+    private final boolean legacyLiteralKey;
+    private final String legacyQuery;
     private final String keyPath;
     private final List<String> keyPathSegments;
 
@@ -65,9 +67,28 @@ class VaultAlias extends VaultPath {
      * @param keyPathSegments the decoded key path segments
      */
     VaultAlias(String engineType, String mountPath, String secretPath, List<String> keyPathSegments) {
+        this(engineType, mountPath, secretPath, keyPathSegments, null, false);
+    }
+
+    private VaultAlias(String engineType, String mountPath, String secretPath, List<String> keyPathSegments,
+                       String legacyQuery, boolean legacyLiteralKey) {
         super(engineType, mountPath, secretPath);
+        this.legacyQuery = legacyQuery;
+        this.legacyLiteralKey = legacyLiteralKey;
         this.keyPathSegments = Collections.unmodifiableList(keyPathSegments);
         this.keyPath = String.join("/", keyPathSegments);
+    }
+
+    VaultAlias withLegacyQuery(String query) {
+        return query == null ? this : new VaultAlias(getEngineType(), getMountPath(), getSecretPath(), keyPathSegments, query, legacyLiteralKey);
+    }
+
+    boolean usesLegacyLiteralKey() {
+        return legacyLiteralKey;
+    }
+
+    String getLegacyQuery() {
+        return legacyQuery;
     }
 
     /**
@@ -83,6 +104,20 @@ class VaultAlias extends VaultPath {
      * @throws CredentialStoreException if the engine type is invalid or any required component is null/empty
      */
     static VaultAlias create(String engineType, String mountPath, String secretPath, String keyPath) throws CredentialStoreException {
+        return create(engineType, mountPath, secretPath, keyPath, false);
+    }
+
+    /**
+     * Create an alias whose key is a single literal map key, as in 1.0.1.Final.
+     * Neither the secret path nor the key is URL-decoded; slashes in the key are literal.
+     */
+    static VaultAlias createWithLiteralKey(String engineType, String mountPath, String secretPath, String key)
+            throws CredentialStoreException {
+        return create(engineType, mountPath, secretPath, key, true);
+    }
+
+    private static VaultAlias create(String engineType, String mountPath, String secretPath, String keyPath,
+                                     boolean literalKey) throws CredentialStoreException {
         // Validate required parameters - null checks
         checkNotNullParam("engineType", engineType);
         checkNotNullParam("mountPath", mountPath);
@@ -109,13 +144,14 @@ class VaultAlias extends VaultPath {
         }
 
         // Validate key path doesn't contain empty segments (if using nested path syntax)
-        if (keyPath.contains("/")) {
+        if (!literalKey && keyPath.contains("/")) {
             if (keyPath.startsWith("/") || keyPath.endsWith("/") || keyPath.contains("//")) {
                 throw ROOT_LOGGER.keyPathContainsEmptySegment(keyPath);
             }
         }
 
-        return new VaultAlias(engineType, mountPath, secretPath, keyPath);
+        return literalKey ? new VaultAlias(engineType, mountPath, secretPath, List.of(keyPath), null, true)
+                : new VaultAlias(engineType, mountPath, secretPath, keyPath);
     }
 
     /**
@@ -147,8 +183,10 @@ class VaultAlias extends VaultPath {
      *
      * <p>Format: {@code [engine=TYPE][@mount-path]#secret-path?key-path}
      *
-     * <p>When {@code supportLegacyFormat} is true, also accepts legacy format: {@code secret-path.key}
-     * where the last dot separates secret path from key. Legacy format triggers a deprecation warning.
+     * <p>When {@code supportLegacyFormat} is true, unprefixed dot aliases use the legacy format:
+     * {@code mount/secret-path.key}. The last non-trailing dot separates the full path from a literal key.
+     * Use an explicit {@code #}, {@code @mount#}, or {@code engine=} prefix for modern aliases during
+     * migration; a {@code ?} within a legacy key remains literal. Legacy aliases trigger a deprecation warning.
      *
      * @param alias the alias string to parse
      * @param defaultEngineType the default engine type to use if not specified in alias
@@ -199,12 +237,12 @@ class VaultAlias extends VaultPath {
         if (o == null || getClass() != o.getClass()) return false;
         if (!super.equals(o)) return false;
         VaultAlias that = (VaultAlias) o;
-        return Objects.equals(keyPathSegments, that.keyPathSegments);
+        return Objects.equals(keyPathSegments, that.keyPathSegments) && Objects.equals(legacyQuery, that.legacyQuery);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), keyPathSegments);
+        return Objects.hash(super.hashCode(), keyPathSegments, legacyQuery);
     }
 
     /**

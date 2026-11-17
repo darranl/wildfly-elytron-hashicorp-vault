@@ -31,6 +31,7 @@ import org.wildfly.security.password.interfaces.ClearPassword;
 
 import io.github.jopenlibs.vault.SslConfig;
 import io.github.jopenlibs.vault.VaultException;
+import io.github.jopenlibs.vault.json.JsonObject;
 
 /**
  * Credential store backed by HashiCorp Vault.
@@ -256,7 +257,16 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
                 throw ROOT_LOGGER.failedToExtractPasswordFromCredential();
             }
             vaultConnector.putSecretData(alias, new String(chars));
-            putInCredentialCache(alias, credential);
+            synchronized (credentialCache) {
+                if (alias.usesLegacyLiteralKey()) {
+                    // A legacy key can replace a whole object, and a query write can copy an older
+                    // version. Invalidate modern children/siblings affected by that replacement.
+                    invalidateCachedSecret(alias);
+                }
+                if (alias.getLegacyQuery() == null) {
+                    credentialCache.put(alias, credential);
+                }
+            }
             ROOT_LOGGER.tracef("Credential stored successfully: alias=%s", credentialAlias);
         } catch (ClassCastException e) {
             throw ROOT_LOGGER.onlyPasswordCredentialWithClearPasswordSupported(e);
@@ -303,7 +313,14 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
 
             // Create credential from the value
             PasswordCredential credential = new PasswordCredential(ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR, value.toCharArray()));
-            putInCredentialCache(alias, credential);
+            // Legacy queries may select a historical version. Never cache a write's value as the
+            // result of a versioned read, or reuse it as the unversioned credential.
+            // An opaque legacy object is a credential only in the legacy format. Do not let an
+            // equivalent modern selector hit its text in the scalar credential cache.
+            boolean legacyObject = alias.usesLegacyLiteralKey() && secretData.get(alias.getKeyPath()) instanceof JsonObject;
+            if (alias.getLegacyQuery() == null && !legacyObject) {
+                putInCredentialCache(alias, credential);
+            }
             ROOT_LOGGER.tracef("Credential retrieved successfully: alias=%s", credentialAlias);
             return credentialType.cast(credential);
         } catch (ClassCastException e) {
@@ -328,7 +345,11 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
         synchronized (credentialCache) {
             // Remove from cache using parsed VaultAlias as key
             // Note: If the removal empties the secret, other keys at same path are also removed from Vault
-            credentialCache.remove(alias);
+            if (alias.usesLegacyLiteralKey()) {
+                invalidateCachedSecret(alias);
+            } else {
+                credentialCache.remove(alias);
+            }
         }
         ROOT_LOGGER.tracef("Credential removed successfully: alias=%s", credentialAlias);
     }
@@ -348,6 +369,13 @@ public class HashicorpVaultCredentialStore extends CredentialStoreSpi {
             this.defaultMountPath,
             this.supportLegacyAliasFormat
         );
+    }
+
+    /** Caller holds the credentialCache lock. */
+    private void invalidateCachedSecret(VaultAlias alias) {
+        credentialCache.keySet().removeIf(cached -> cached.getEngineType().equals(alias.getEngineType())
+                && cached.getMountPath().equals(alias.getMountPath())
+                && cached.getSecretPath().equals(alias.getSecretPath()));
     }
 
     private void putInCredentialCache(VaultAlias alias, Credential credential) {

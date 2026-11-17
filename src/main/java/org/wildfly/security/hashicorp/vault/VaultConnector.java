@@ -310,7 +310,11 @@ public class VaultConnector {
         mountPath = urlEncodePath(mountPath);
         secretPath = urlEncodePath(secretPath);
 
-        return mountPath + "/" + secretPath;
+        String fullPath = mountPath + "/" + secretPath;
+        if (path instanceof VaultAlias alias && alias.getLegacyQuery() != null) {
+            fullPath += "?" + alias.getLegacyQuery();
+        }
+        return fullPath;
     }
 
     /**
@@ -477,7 +481,17 @@ public class VaultConnector {
                     // "database/credentials/password" cannot traverse. Build real nested maps from the JSON instead.
                     JsonObject dataObject = response.getDataObject();
                     if (dataObject != null) {
-                        return toDataMap(dataObject);
+                        Map<String, Object> result = toDataMap(dataObject);
+                        if (vaultPath instanceof VaultAlias alias && alias.usesLegacyLiteralKey()) {
+                            JsonValue value = dataObject.get(alias.getKeyPath());
+                            if (value != null && value.isObject()) {
+                                // Final returned a whole top-level object as JSON credential text.
+                                // Keep the raw object: rebuilding it from toDataMap would lose JSON
+                                // scalar types and nulls. Modern aliases must still see traversable maps.
+                                result.put(alias.getKeyPath(), value);
+                            }
+                        }
+                        return result;
                     }
                     return new HashMap<>(data);
                 }

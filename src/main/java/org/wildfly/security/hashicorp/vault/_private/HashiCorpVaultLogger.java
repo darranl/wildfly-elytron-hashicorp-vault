@@ -267,10 +267,10 @@ public interface HashiCorpVaultLogger extends BasicLogger {
     // --- Legacy format support ---
 
     @LogMessage(level = Logger.Level.WARN)
-    @Message(id = 72, value = "Legacy alias format detected: '%s'. This format is deprecated and will be removed in a future release. Please migrate to the new format: '%s'")
+    @Message(id = 72, value = "Legacy alias format detected: '%s'. This format is deprecated and will be removed in a future release. For leaf values, migrate to the new format: '%s'")
     void legacyAliasFormatDeprecated(String legacyAlias, String newFormatEquivalent);
 
-    @Message(id = 73, value = "Legacy alias format '%s' is not supported. Use new format: '%s'")
+    @Message(id = 73, value = "Legacy alias format '%s' is not supported. For leaf values, use new format: '%s'")
     CredentialStoreException legacyAliasFormatNotSupported(String legacyAlias, String newFormatEquivalent);
 
     @Message(id = 74, value = "Invalid alias format: %s. Expected format: [engine=TYPE][@mount-path][#]secret-path?key-path (# is optional when no engine= or @ prefix)")
@@ -281,6 +281,10 @@ public interface HashiCorpVaultLogger extends BasicLogger {
 
     @Message(id = 76, value = "Invalid default-engine-type configuration '%s'. Valid values are: KVv1, KVv2")
     CredentialStoreException invalidDefaultEngineType(String engineType);
+
+    @LogMessage(level = WARN)
+    @Message(id = 83, value = "Legacy alias '%s' contains an HTTP query. Keep legacy support enabled: the new alias format cannot represent query parameters, including KV v2 version selection.")
+    void legacyAliasWithQueryDeprecated(String legacyAlias);
 
     // --- Deep nesting warning ---
 

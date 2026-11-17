@@ -1,690 +1,204 @@
 # Migration Guide: Legacy to New Alias Format
 
-## Overview
+The upgrade criterion is that an existing `1.0.1.Final` legacy alias continues to select the same
+credential when legacy support is enabled. Users can then migrate aliases individually, verify
+their destinations, and disable compatibility after the migration is complete.
 
-This guide helps you migrate from the legacy alias format to the new structured format. The new format provides better support for nested JSON paths, dots in key names, and multiple secret engines.
+## Enable Compatibility Before Upgrading
 
-## Format Comparison
+The library's `support-legacy-alias-format` implementation property defaults to `false`. Set it
+to `true` on each credential store that still has legacy references. This allows both legacy
+aliases and explicitly marked modern aliases in that store. It does not rewrite existing aliases.
 
-### Legacy Format
-```
-secret-path.key
-```
-
-The legacy format uses a dot (`.`) to separate the secret path from the key name. This creates ambiguity when paths or keys contain dots.
-
-### New Format
-```
-[engine=TYPE][@mount-path][#]secret-path?key-path
-```
-
-The new format uses explicit delimiters:
-- `?` separates secret path from key path
-- `#` marks the start of the secret path (optional in simple cases)
-- `@` specifies custom mount paths
-- `engine=` specifies the secret engine type
-
-## Why Migrate?
-
-### Problems with Legacy Format
-
-1. **Ambiguous with dots:** `my.app.db.password` - which dot separates path from key?
-2. **No nested JSON support:** Cannot traverse nested JSON structures
-3. **No engine type support:** Assumes KVv2 engine
-4. **No custom mount support:** Assumes `secret` mount
-5. **Limited flexibility:** Cannot handle complex Vault configurations
-
-### Benefits of New Format
-
-1. **Unambiguous parsing:** Clear delimiters for all components
-2. **Nested JSON support:** Use `/` to traverse nested structures
-3. **Dots in keys work naturally:** `?db.host` looks up key literally named "db.host"
-4. **Multiple engine support:** Specify engine type per-alias
-5. **Custom mount paths:** Use different mount paths per-alias
-6. **Future-proof:** Extensible for new Vault features
-
-## Migration Strategy
-
-### Phase 1: Enable Legacy Support (Recommended)
-
-During migration, enable legacy format support to avoid breaking existing configurations:
-
-```xml
-<credential-store name="vault-store"
-                  type="hashicorp-vault">
-    <implementation-properties>
-        <property name="host-address" value="https://vault.company.com:8200"/>
-        <property name="support-legacy-alias-format" value="true"/>
-    </implementation-properties>
-</credential-store>
-```
-
-**Note:** The `support-legacy-alias-format` parameter defaults to `false` (legacy format disabled). Set it to `true` to enable legacy format support during migration.
-
-### Phase 2: Convert Aliases
-
-Convert your aliases one at a time, testing each conversion:
-
-#### Simple Conversions
-
-| Legacy Format | New Format | Notes |
-|---------------|------------|-------|
-| `myapp/db.password` | `myapp/db?password` | Simple key |
-| `app.config.key` | `app.config?key` | Dots in secret path |
-| `my.app.db.pass` | `my.app.db?pass` | Multiple dots in path |
-
-#### Nested JSON Conversions
-
-If your Vault secrets contain nested JSON, you can now access nested values:
-
-**Legacy (only top-level keys):**
-```
-myapp/config.database_host
-```
-
-**New (can access nested values):**
-```
-myapp/config?database/host
-```
-
-Given Vault secret:
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": 5432
-  }
-}
-```
-
-### Phase 3: Test Thoroughly
-
-After converting each alias:
-
-1. **Test retrieval:** Verify the credential is retrieved correctly
-2. **Test application:** Ensure the application works with the new alias
-3. **Check logs:** Look for any warnings or errors
-4. **Document changes:** Keep track of converted aliases
-
-### Phase 4: Disable Legacy Support
-
-Once all aliases are converted and tested:
-
-```xml
-<credential-store name="vault-store"
-                  type="hashicorp-vault">
-    <implementation-properties>
-        <property name="host-address" value="https://vault.company.com:8200"/>
-        <property name="support-legacy-alias-format" value="false"/>
-    </implementation-properties>
-</credential-store>
-```
-
-## Conversion Examples
-
-### Example 1: Simple Database Password
-
-**Legacy:**
-```
-myapp/database.password
-```
-
-**Vault Secret:**
-```json
-{
-  "password": "secret123",
-  "username": "admin"
-}
-```
-
-**New Format:**
-```
-myapp/database?password
-```
-
-**Explanation:** The `?` clearly separates the secret path (`myapp/database`) from the key (`password`).
-
-### Example 2: Dots in Secret Path
-
-**Legacy:**
-```
-my.app.config.api_key
-```
-
-**Vault Secret Path:** `my.app.config`
-**Key:** `api_key`
-
-**New Format:**
-```
-my.app.config?api_key
-```
-
-**Explanation:** Dots in the secret path work naturally. The `?` delimiter makes it clear where the path ends and the key begins.
-
-### Example 3: Nested JSON Access
-
-**Legacy (couldn't access nested values):**
-```
-myapp/config.database_host
-```
-
-This required flattening the JSON in Vault:
-```json
-{
-  "database_host": "localhost",
-  "database_port": "5432"
-}
-```
-
-**New Format (can access nested values):**
-```
-myapp/config?database/host
-myapp/config?database/port
-```
-
-Now you can use natural JSON structure:
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": 5432
-  }
-}
-```
-
-### Example 4: Key with Dots
-
-**Legacy:**
-```
-services.db.host
-```
-
-**Ambiguity:** Is the secret path `services.db` with key `host`, or `services` with key `db.host`?
-
-**New Format (secret path: `services`, key: `db.host`):**
-```
-services?db.host
-```
-
-**New Format (secret path: `services.db`, key: `host`):**
-```
-services.db?host
-```
-
-**Explanation:** The `?` delimiter removes all ambiguity.
-
-### Example 5: Nested with Dots in Keys
-
-**Vault Secret:**
-```json
-{
-  "my.app": {
-    "config.key": "value123"
-  }
-}
-```
-
-**New Format:**
-```
-services?my.app/config.key
-```
-
-**Explanation:**
-- `my.app` is a literal key name (contains dot)
-- `/` traverses into that key
-- `config.key` is another literal key name (contains dot)
-
-### Example 6: Custom Engine Type
-
-**Legacy (no engine type support):**
-```
-old-secrets.api_key
-```
-
-**New Format (KVv1 engine):**
-```
-engine=KVv1#old-secrets?api_key
-```
-
-**Explanation:** The `engine=` prefix specifies KVv1, and `#` is required when using prefixes.
-
-### Example 7: Custom Mount Path
-
-**Legacy (no mount path support):**
-```
-myapp/database.password
-```
-
-**New Format (custom mount):**
-```
-@prod/secrets#myapp/database?password
-```
-
-**Explanation:** The `@` prefix specifies a custom mount path, and `#` is required when using prefixes.
-
-## Detection Logic
-
-The implementation automatically detects which format is being used:
-
-### New Format Indicators
-An alias is considered **new format** if it contains any of:
-- `?` (key path delimiter)
-- `#` (secret path marker)
-- `@` (mount path prefix)
-- Starts with `engine=`
-
-### Legacy Format
-If none of the above indicators are present AND the alias contains a dot (`.`), it is treated as **legacy format** (split on last dot).
-
-**Important:** Legacy format support must be explicitly enabled via the `support-legacy-alias-format` configuration parameter. When disabled (default in stable releases), aliases without new format indicators will be rejected with an error message providing the correct new format.
-
-### Examples
-
-```
-myapp/database?password          → New format (contains ?)
-#myapp/database?password         → New format (contains # and ?)
-@custom#myapp/db?pass            → New format (contains @, #, and ?)
-engine=KVv1#secret?key           → New format (starts with engine=)
-myapp/database.password          → Legacy format (no indicators)
-my.app.config.key                → Legacy format (no indicators)
-```
-
-## Common Migration Scenarios
-
-### Scenario 1: Simple Application
-
-**Before:**
-```xml
-<credential-store name="vault-store" type="hashicorp-vault">
-    <implementation-properties>
-        <property name="host-address" value="https://vault.company.com:8200"/>
-    </implementation-properties>
-</credential-store>
-```
-
-**Aliases:**
-- `myapp/database.password`
-- `myapp/api.key`
-
-**After:**
-```xml
-<credential-store name="vault-store" type="hashicorp-vault">
-    <implementation-properties>
-        <property name="host-address" value="https://vault.company.com:8200"/>
-        <property name="support-legacy-alias-format" value="false"/>
-    </implementation-properties>
-</credential-store>
-```
-
-**New Aliases:**
-- `myapp/database?password`
-- `myapp/api?key`
-
-### Scenario 2: Multiple Applications with Nested Secrets
-
-**Before (flattened structure):**
-
-Vault secrets:
-```json
-{
-  "db_host": "localhost",
-  "db_port": "5432",
-  "db_user": "admin",
-  "db_pass": "secret"
-}
-```
-
-Aliases:
-- `myapp/config.db_host`
-- `myapp/config.db_port`
-- `myapp/config.db_user`
-- `myapp/config.db_pass`
-
-**After (nested structure):**
-
-Vault secrets:
-```json
-{
-  "database": {
-    "host": "localhost",
-    "port": 5432,
-    "credentials": {
-      "user": "admin",
-      "pass": "secret"
-    }
-  }
-}
-```
-
-New aliases:
-- `myapp/config?database/host`
-- `myapp/config?database/port`
-- `myapp/config?database/credentials/user`
-- `myapp/config?database/credentials/pass`
-
-### Scenario 3: Mixed Engine Types
-
-**Before (all KVv2):**
-- `old-app/config.key`
-- `new-app/config.key`
-
-**After (mixed engines):**
-- `engine=KVv1#old-app/config?key` (legacy app uses KVv1)
-- `new-app/config?key` (new app uses KVv2 default)
-
-## Testing Your Migration
-
-### 1. Create a Test Credential Store
-
-```xml
-<credential-store name="vault-store-test"
-                  type="hashicorp-vault">
-    <implementation-properties>
-        <property name="host-address" value="https://vault-test.company.com:8200"/>
-        <property name="support-legacy-alias-format" value="true"/>
-    </implementation-properties>
-</credential-store>
-```
-
-### 2. Test Both Formats Side-by-Side
-
-Create test secrets in Vault:
-```bash
-vault kv put secret/test/migration password=test123
-```
-
-Test both formats:
-- Legacy: `test/migration.password`
-- New: `test/migration?password`
-
-### 3. Verify Retrieval
-
-Use WildFly CLI to test:
-```bash
-/subsystem=elytron/credential-store=vault-store-test:read-alias(alias=test/migration?password)
-```
-
-### 4. Test Application Integration
-
-Deploy your application with the new aliases and verify functionality.
-
-### 5. Monitor Logs
-
-Check for warnings or errors related to alias parsing:
-```bash
-grep -i "vault\|alias" server.log
-```
-
-## Rollback Plan
-
-If you encounter issues during migration:
-
-### 1. Re-enable Legacy Support
+For a store configured through the Elytron provider, include this implementation property:
 
 ```xml
 <property name="support-legacy-alias-format" value="true"/>
 ```
 
-### 2. Revert Aliases
+For a native WildFly HashiCorp Vault subsystem store, the subsystem supplies the property from
+the server stability level: Community enables legacy support; Default disables it. Plan the
+server stability setting as part of the upgrade. Enabling compatibility in another store does
+not enable it for this one. Keep TLS, authentication, namespace, and Vault policies configured
+for the intended deployment.
 
-Change aliases back to legacy format temporarily.
+## Understand the Destination Before Converting
 
-### 3. Investigate Issues
+Final documented aliases include the mount:
 
-- Check logs for specific errors
-- Verify Vault secret structure
-- Test individual aliases
-- Review URL encoding
-
-### 4. Retry Migration
-
-Once issues are resolved, retry the migration process.
-
-## Best Practices
-
-### 1. Migrate Gradually
-
-Don't convert all aliases at once. Migrate one application or service at a time.
-
-### 2. Test in Non-Production First
-
-Always test migrations in development or staging environments first.
-
-### 3. Document Your Aliases
-
-Keep a mapping of old to new aliases:
-
-```
-# Migration Mapping
-myapp/database.password → myapp/database?password
-myapp/api.key → myapp/api?key
-services.auth.token → services/auth?token
+```text
+secret/myapp.database_password
 ```
 
-### 4. Use Nested Paths When Appropriate
+This means mount `secret`, secret `myapp`, literal key `database_password`. It must continue to
+access that destination, rather than `secret/secret/myapp` under the default mount.
+A custom mount works the same way: `custom/myapp.password` selects mount `custom`.
 
-Take advantage of nested JSON support to organize secrets better:
+Legacy path and key encoding differ:
 
-**Before:**
-```
-myapp/config.db_host
-myapp/config.db_port
-myapp/config.api_key
-myapp/config.api_secret
-```
+- The key is a literal top-level JSON field. `/` does not traverse an object, `%20` is not a space,
+  and `+`, `?`, `#`, and `@` are part of its name.
+- The path followed HTTP URL semantics in Final. `%20` addresses a space, `%2520` addresses the
+  literal text `%20`, and a literal `+` in the path stays a plus. Raw `?` or `#` begins a URL
+  query or fragment, rather than becoming part of the secret name. Queries are preserved, including
+  `?version=1` for a historical KV v2 version; fragments are excluded as in Final. Encoded `%3F` and
+  `%23` remain literal path characters.
+- One or more raw leading slashes are accepted; raw slash runs collapse before percent decoding. The first path component identifies the mount.
+- Final required exactly one non-trailing dot. Its Java split operation discarded trailing dots,
+  so `secret/app.key.` and `secret/app.key..` selected `key`. Compatibility retains this behavior.
+  The later extension splitting at the last dot to allow dots in secret paths is also retained.
+  A path without a slash uses the configured default mount; use the mount-qualified form when
+  comparing against a Final deployment.
 
-**After:**
-```
-myapp/config?database/host
-myapp/config?database/port
-myapp/config?api/key
-myapp/config?api/secret
-```
+There is no fallback to another key or path if a literal key or secret is absent. A fallback
+could silently select another credential when both interpretations exist.
 
-### 5. Plan for URL Encoding
+## Use Explicit Modern Aliases
 
-If your paths contain special characters, plan for URL encoding:
+Prefer the fully qualified modern spelling during migration:
 
-```
-test path → test%20path
-test#path → test%23path
-test?path → test%3Fpath
-test%path → test%25path
-test+path → test%2Bpath
-```
-
-Key names follow the same rules, plus one more: an unencoded `/` in a key path is nested traversal, so a key whose
-name contains a slash must be written with `%2F`:
-
-```
-?database/host      → nested: data["database"]["host"]
-?database%2Fhost    → literal key "database/host"
-?database%252Fhost  → literal key "database%2Fhost"
+```text
+@mount#secret-path?key-path
 ```
 
-## Timeline Recommendations
+For example:
 
-### Week 1-2: Planning
-- Review all existing aliases
-- Identify conversion patterns
-- Plan testing strategy
-- Set up test environment
-
-### Week 3-4: Testing
-- Enable legacy support in test environment
-- Convert and test aliases in test environment
-- Document any issues
-- Refine conversion approach
-
-### Week 5-6: Staging Migration
-- Enable legacy support in staging
-- Convert aliases in staging
-- Test applications thoroughly
-- Monitor for issues
-
-### Week 7-8: Production Migration
-- Enable legacy support in production
-- Convert aliases in production (gradually)
-- Monitor applications closely
-- Keep legacy support enabled
-
-### Week 9+: Cleanup
-- After stable period (2-4 weeks), disable legacy support
-- Remove legacy format documentation from internal docs
-- Update runbooks and procedures
-
-## Troubleshooting
-
-### Issue: Alias Not Found After Conversion
-
-**Symptoms:** Application can't retrieve credential after converting alias.
-
-**Solutions:**
-1. Verify the secret exists in Vault at the specified path
-2. Check for typos in the new alias
-3. Verify URL encoding if path contains special characters
-4. Test the alias using WildFly CLI
-5. Check Vault logs for access attempts
-
-### Issue: Wrong Value Retrieved
-
-**Symptoms:** Credential is retrieved but has wrong value.
-
-**Solutions:**
-1. Verify the key path is correct
-2. Check if you need nested path (`/`) vs simple key, and whether a key name that contains a slash is written as `%2F`
-3. Inspect the actual Vault secret structure
-4. Test key path resolution separately
-
-### Issue: Legacy Format Still Being Used
-
-**Symptoms:** New format aliases not working, legacy format still works.
-
-**Solutions:**
-1. Verify `support-legacy-alias-format` is set correctly
-2. Check if alias contains new format indicators (`?`, `#`, `@`, `engine=`)
-3. Review alias detection logic
-4. Check for configuration caching issues
-
-### Issue: URL Encoding Problems
-
-**Symptoms:** Paths with special characters not working.
-
-**Solutions:**
-1. Verify special characters are URL-encoded (`#` → `%23`, `?` → `%3F`, `%` → `%25`, `+` → `%2B`)
-2. Check that spaces are encoded as `%20` (an unencoded `+` is read as a space)
-3. Test with simple paths first, then add encoding
-4. Review URL encoding documentation
-
-### Issue: Checking Logs and Enabling Debug Logging
-
-**When to use:** Any troubleshooting scenario - logs provide detailed information about what's happening.
-
-**Log File Locations:**
-- **Standalone mode:** `$JBOSS_HOME/standalone/log/server.log`
-- **Domain mode:** `$JBOSS_HOME/domain/servers/{server-name}/log/server.log`
-
-**Enable Debug Logging:**
-
-Add to your WildFly configuration (standalone.xml or domain.xml):
-
-```xml
-<subsystem xmlns="urn:jboss:domain:logging:8.0">
-    <logger category="org.wildfly.security.hashicorp.vault">
-        <level name="DEBUG"/>
-    </logger>
-</subsystem>
+```text
+secret/myapp.database_password  →  @secret#myapp?database_password
 ```
 
-Or use CLI:
+The explicit mount and `#` remove ambiguity and keep the destination stable with compatibility
+either enabled or disabled. `#myapp?database_password` also selects the configured default mount,
+which is useful when that default is intentionally part of the configuration.
 
-```bash
-/subsystem=logging/logger=org.wildfly.security.hashicorp.vault:add(level=DEBUG)
-reload
+For modern aliases, percent-encode literal names. A raw `/` in the key traverses nested objects;
+`%2F` is a slash inside one literal field name. Each segment is decoded exactly once. `%25`
+represents a literal percent sign, `%2B` a plus, and `%20` a space. Existing modern decoding and
+nested traversal rules apply with either compatibility setting.
+
+| Existing legacy alias | Modern alias for the same credential |
+| --- | --- |
+| `secret/myapp/db.password` | `@secret#myapp/db?password` |
+| `custom/myapp.password` | `@custom#myapp?password` |
+| `secret/app.database/host` | `@secret#app?database%2Fhost` |
+| `secret/app.database%2Fhost` | `@secret#app?database%252Fhost` |
+| `secret/app.a+b` | `@secret#app?a%2Bb` |
+| `secret/app.a%20b` | `@secret#app?a%2520b` |
+| `secret/app.a?b` | `@secret#app?a%3Fb` |
+| `secret/app.a#b` | `@secret#app?a%23b` |
+| `secret/app.a@b` | `@secret#app?a%40b` |
+| `secret/app+name.key` | `@secret#app%2Bname?key` |
+| `secret/app%20name.key` | `@secret#app%20name?key` |
+| `secret/app%2520name.key` | `@secret#app%2520name?key` |
+
+A nested JSON object needs a different alias from a literal slash key:
+
+```json
+{
+  "database/host": "literal credential",
+  "database": {"host": "nested credential"}
+}
 ```
 
-**Enable Trace Logging (for detailed operations):**
+`@secret#app?database%2Fhost` selects the literal credential.
+`@secret#app?database/host` selects the nested credential. Merely replacing the legacy dot with
+`?` would change which credential is selected in this example.
 
-```bash
-/subsystem=logging/logger=org.wildfly.security.hashicorp.vault:write-attribute(name=level,value=TRACE)
-reload
-```
+## Format Precedence During Migration
 
-**What to Look For:**
+An initial `#` or a complete modern header (`@mount#path?key` or `engine=TYPE[@mount]#path?key`)
+selects modern parsing. A legacy mount whose name starts with `@` or `engine=` remains legacy
+when the complete header is absent. With compatibility
+enabled, an unprefixed dot alias takes legacy precedence, including when its literal key contains
+`?`, `#`, or `@`. Otherwise a `?` separates the modern path and key.
 
-1. **Configuration Issues:**
-   ```
-   ELYHCVT0024: Failed to configure Vault connection to https://vault.example.com:8200
-   ```
-   Check: host-address, port, TLS settings, authentication
+This overlap cannot be resolved from the credential data safely. Always make modern aliases
+explicit before changing the compatibility switch:
 
-2. **Authentication Problems:**
-   ```
-   ELYHCVT0034: All login strategies failed
-   ```
-   Check: vault token, TLS certificates, authentication-context
+| Alias | Legacy support on | Legacy support off |
+| --- | --- | --- |
+| `secret/app.a?b` | Mount `secret`, secret `app`, literal key `a?b` | Default mount, secret `secret/app.a`, key `b` |
+| `myapp/db?password` | Mount `myapp`, secret `db`, key `password` | Default mount, secret `myapp/db`, key `password` |
+| `#myapp/db?password` | Default mount, secret `myapp/db`, key `password` | Same |
+| `@secret#app?a%3Fb` | Mount `secret`, secret `app`, literal key `a?b` | Same |
 
-3. **Alias Format Issues:**
-   ```
-   ELYHCVT0074: Invalid alias format: ...
-   ```
-   Check: alias syntax, delimiters, URL encoding
+The fully qualified modern prefix is reserved for the modern grammar. Use explicit modern aliases
+for any unusual legacy spelling that collides with it. Turning compatibility off is not a migration
+validator: an ambiguous alias may remain syntactically valid while addressing a different secret.
 
-4. **Secret Not Found:**
-   ```
-   ELYHCVT0029: Secret not found at path: secret/myapp/database
-   ```
-   Check: path exists in Vault, permissions, KV version
+## Legacy Object Credentials
 
-5. **Legacy Format Warnings:**
-   ```
-   ELYHCVT0072: Legacy alias format detected: 'secret.myapp.password'
-   ```
-   Action: Migrate to new format
+Final returned a top-level JSON object as serialized JSON credential text. Legacy aliases and the
+deprecated path/key constructor retain that behavior, including the original member types and nulls.
+Arrays, numbers, and booleans also retain their JSON text representation.
 
-**Troubleshooting Workflow:**
+Modern aliases require a leaf credential. An alias pointing to a whole object returns no credential;
+use a nested key path to select a leaf inside it. Legacy object-text results are not cached in the
+shared scalar credential cache, so they cannot make an equivalent modern container alias return text.
 
-1. Check server.log for ELYHCVT error codes
-2. Enable DEBUG logging if needed
-3. Reproduce the issue
-4. Look for error messages with context
-5. Enable TRACE logging for detailed operation flow
-6. Check Vault audit logs for corresponding access attempts
+If an application requires the whole JSON document as its password, preserve that document as a JSON
+**string** field before converting the reference to modern syntax. Plan and verify that schema change
+separately. Replacing the dot with `?` cannot preserve an object-as-text credential by itself.
 
-## Support and Resources
+## Legacy HTTP Queries
 
-### Documentation
-- [Alias Format Specification](alias-format.md)
-- [Configuration Guide](configuration.md)
-- [WildFly Elytron Documentation](https://docs.wildfly.org/elytron/)
+A legacy alias such as `secret/app?version=1.password` selects the historical KV v2 version 1,
+not the latest credential. Compatibility preserves that query for reads and for the read/update
+operations used by writes and removals. A query-based write can create a new latest version from
+historical data; this matches Final's target behavior. Verify the intended version before mutation.
 
-### Getting Help
-- Check server logs for detailed error messages
-- Review Vault audit logs for access patterns
-- Test aliases using WildFly CLI for debugging
-- Consult WildFly community forums
+The modern alias format cannot express HTTP query parameters. A query alias emits a dedicated
+warning rather than suggesting an equivalent modern alias that would lose version selection.
+Keep compatibility enabled for these references until version pinning is no longer required or
+an appropriate replacement is available. Simply changing this example to `@secret#app?password`
+would select the latest version. Queries are not cached as unversioned credentials.
 
-## Deprecation Timeline
+## Legacy Literal Keys and Release Candidate Compatibility
 
-### Current Status
-- **Legacy format:** Supported (with `support-legacy-alias-format=true`)
-- **New format:** Fully supported and recommended
+`1.1.0.CR1` through `1.1.0.CR3` decoded legacy keys and interpreted `/` as nested traversal.
+They could also prefix the configured default mount again for a dot alias. Those behaviors differ
+from Final and are not the compatibility target. If a configuration deliberately relied on a
+release candidate's interpretation, convert it to an explicit modern alias for that destination
+before adopting restored Final compatibility.
 
-### Future Plans
-- **Next major version:** Legacy format deprecated (warning messages)
-- **Following major version:** Legacy format removed
+For example, under default mount `secret`:
 
-**Recommendation:** Migrate to new format as soon as practical to avoid future compatibility issues.
+- If `app.database/host` intentionally selected a nested value in those releases, use
+  `@secret#app?database/host`. To select Final's literal field, use `@secret#app?database%2Fhost`.
+- If `app.a+b` or `app.a%20b` intentionally selected key `a b`, use `@secret#app?a%20b`.
+  Final's literal keys instead require `%2B` or `%2520`, respectively.
+- If `secret/app.key` intentionally accessed secret `secret/app` within mount `secret` because
+  of the duplicate prefix, use `@secret#secret/app?key`. The Final destination is `@secret#app?key`.
 
-## Summary
+Warnings and rejection messages now suggest the equivalent alias for the restored Final destination.
+Compare the mount, secret, and key with the deployment's intended data before applying a suggestion.
 
-The new alias format provides significant improvements over the legacy format:
+## Java Credential Sources
 
-✅ **Unambiguous parsing** - Clear delimiters for all components
-✅ **Nested JSON support** - Access deeply nested values
-✅ **Dots in keys** - No restrictions on naming
-✅ **Multiple engines** - Support for all Vault secret engines
-✅ **Custom mounts** - Flexible mount path configuration
-✅ **Future-proof** - Extensible for new features
+The deprecated constructor `VaultCredentialSource(connector, secretPath, secretKey)` preserves
+Final's mount-qualified wire path and literal key behavior independently of the store switch.
+For example, path `secret/app%20name` selects `app name`, and key `database/host` is literal.
 
-Migration is straightforward with legacy format support enabled during the transition period. Follow this guide to ensure a smooth migration process.
+The alias-string constructor accepts modern syntax only. Use an explicit modern alias from the
+table above. The constructor taking explicit engine, mount, secret, and key-path components expects
+decoded component names; its key path still uses `/` for traversal. Do not percent-encode decoded
+components when using that constructor.
+
+## Roll Out and Verify
+
+1. Enable compatibility for every store with legacy references before upgrading the library.
+2. In a test deployment, verify unchanged credential references against known Vault destinations.
+   Include custom mounts and any keys or paths containing special characters.
+3. Convert references one at a time to explicit modern aliases, preserving the original mount,
+   path, and literal key. Verify the application uses the intended credential after each change.
+4. Check all references, including expressions, data sources, LDAP configuration, and scripts.
+   Exercise reload or restart so successful reads are not solely cached results.
+5. Resolve any references that require legacy query parameters before disabling compatibility.
+   Disable compatibility after all aliases are explicit modern forms. Verify the same application
+   behavior again. Retain the previous configuration for the deployment's rollback procedure.
+
+Migration does not require moving Vault data or rewriting fields into nested objects. If a secret
+schema change is desired, plan it separately from changing alias syntax.
+
+See the [complete alias reference](alias-format.md) for engine selection, listing, escaping, and
+nested key operations.

@@ -392,28 +392,57 @@ secret-path.key
 
 ### Detection Strategy
 
-The implementation automatically detects the format:
+For aliases with keys, an initial `#` or a complete modern header (`@mount#path?key` or
+`engine=TYPE[@mount]#path?key`) selects the new format. A legacy mount name starting with `@`
+or `engine=` does not by itself select modern parsing.
+With `support-legacy-alias-format=true`, an unprefixed dot alias takes legacy precedence. Markers
+inside its literal key, including `?`, `#`, and `@`, do not change that interpretation.
+Otherwise `?` separates the modern secret path from its key path. No data-dependent fallback occurs.
 
-- **New format** if alias contains: `?`, `#`, `@`, or starts with `engine=`
-- **Legacy format** if none of the above indicators are present AND the alias contains a dot (`.`). The alias is split
-  on its **last** dot, wherever that is, as it always has been. In `my.app/config` the last dot is before the slash,
-  so the secret is `my` and the key path is `app/config`. Prefer the new format for such names, for example
-  `my.app/config?key`.
+A legacy alias is split on its last dot after discarding trailing dots, retaining the trailing-dot
+behavior of `1.0.1.Final` and the later extension allowing dots in secret paths. In `1.0.1.Final`
+the alias needed exactly one non-trailing dot. Prefer explicit modern aliases for new configurations.
 
-A legacy alias is URL-decoded exactly as it was before: `+` becomes a space and `%xx` is decoded, and the legacy key
-is decoded **before** it is split on `/`. So in a legacy alias `%2F` in the key is nested traversal, unlike the new
-format where `%2F` in a key path is a literal slash. This is kept so that existing configurations behave as they did.
+Legacy paths include the mount: `secret/app.key` selects key `key` in secret `app`, mount `secret`.
+A leading slash is accepted. Paths without a slash use the configured default mount as a convenience;
+this is not the mount-qualified spelling documented by Final. Percent escapes in a legacy path
+follow the original HTTP-path behavior: `%20` denotes a space, `%2520` denotes literal `%20`, and
+`+` stays a plus. Unescaped `?` and `#` in the legacy path begin a query or fragment. Queries
+are preserved (including KV v2 `version` selection), while fragments are excluded. Encoded `%3F`
+and `%23` remain literal path characters. Legacy keys are completely literal: `/`, `%xx`, and `+` are part of the key name.
 
-**Important:** Legacy format support must be explicitly enabled via the `support-legacy-alias-format` configuration parameter. When disabled (default in stable releases), aliases without new format indicators will be rejected with an error message providing the correct new format.
+For modern aliases, `/` separates nested key segments before each segment is decoded once;
+`%2F` inside a segment denotes a literal slash. These rules apply with either legacy setting.
+Use `#path?key` to select a path under the default mount and `@mount#path?key` to name the mount
+explicitly. Avoid unprefixed modern aliases during migration: both slash routing and the meaning
+of dot aliases can depend on the legacy switch. For example, `secret/app.a?b` is legacy key `a?b`
+when compatibility is enabled; with it disabled it is modern key `b` at path `secret/app.a`.
+
+Legacy support is disabled by default. Rejected legacy aliases and deprecation warnings provide
+an explicit modern replacement for the same destination when representable. Legacy HTTP queries
+have no modern equivalent: their warning explains that compatibility must remain enabled.
+Final also returned a whole top-level object as JSON credential text; legacy aliases retain that
+behavior, but modern aliases require a leaf value. Such object credentials need a separate schema
+migration to a JSON string before their aliases can be converted. See the migration guide. Aliases containing `?` may be valid
+modern aliases when legacy support is off; disabling the switch is not a validation of migration.
 
 ### Migration Examples
 
 | Legacy Format | New Format | Notes |
 |---------------|------------|-------|
-| `myapp/db.password` | `myapp/db?password` | Simple key |
-| `app.config.key` | `app.config?key` | Dots in secret path |
-| `my.app.db.pass` | `my.app.db?pass` | Multiple dots |
-| `app/config.key` | `app?config/key` | Nested key path |
+| `secret/myapp/db.password` | `@secret#myapp/db?password` | Same mount and secret |
+| `custom/app.key` | `@custom#app?key` | Custom mount |
+| `secret/app.database/host` | `@secret#app?database%2Fhost` | Literal slash in key |
+| `secret/app.database%2Fhost` | `@secret#app?database%252Fhost` | Literal percent escape in key |
+| `secret/app.a+b` | `@secret#app?a%2Bb` | Literal plus in key |
+| `secret/app.a?b` | `@secret#app?a%3Fb` | Literal question mark in key |
+| `secret/app+name.key` | `@secret#app%2Bname?key` | Literal plus in secret path |
+| `secret/app%20name.key` | `@secret#app%20name?key` | Space in secret path |
+| `secret/app%2520name.key` | `@secret#app%2520name?key` | Literal percent escape in path |
+
+The `1.1.0.CR1` through `CR3` releases decoded legacy keys, treated slashes in them as traversal,
+and could prefix the default mount again for dot aliases. Migration from those releases must
+use the destination actually intended; see the [release-candidate guidance](migration.md#legacy-literal-keys-and-release-candidate-compatibility).
 
 See [migration.md](migration.md) for detailed migration guidance.
 

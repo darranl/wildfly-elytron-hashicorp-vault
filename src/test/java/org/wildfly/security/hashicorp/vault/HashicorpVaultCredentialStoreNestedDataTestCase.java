@@ -136,23 +136,23 @@ public class HashicorpVaultCredentialStoreNestedDataTestCase {
         assertEquals("alice", read(reader, "#app?db/creds/user"));
     }
 
-    /** The legacy {@code secret-path.key} alias must keep working on a secret that also holds nested data. */
+    /** A Final mount-qualified alias must keep working on a secret that also holds nested data. */
     @Test
     public void testLegacyAliasStoreAndRemoveKeepNestedData() throws Exception {
         vaultTestContainer = startVaultTestContainer();
         writeRaw("secret/legacyapp/config", seedData());
         HashicorpVaultCredentialStore store = createStore(true);
 
-        store.store("legacyapp/config.apikey", password("rotated"), null);
+        store.store("secret/legacyapp/config.apikey", password("rotated"), null);
 
         JsonObject stored = readRaw("secret/legacyapp/config");
         assertEquals("rotated", stored.getString("apikey", null));
         assertTrue(stored.get("db").isObject(), "db must still be a JSON object, was: " + stored.get("db"));
         assertEquals("alice", stored.get("db").asObject().get("creds").asObject().getString("user", null));
         assertTypesKept(stored);
-        assertEquals("rotated", read(createStore(true), "legacyapp/config.apikey"));
+        assertEquals("rotated", read(createStore(true), "secret/legacyapp/config.apikey"));
 
-        store.remove("legacyapp/config.apikey", PasswordCredential.class, null, null);
+        store.remove("secret/legacyapp/config.apikey", PasswordCredential.class, null, null);
 
         stored = readRaw("secret/legacyapp/config");
         assertNull(stored.get("apikey"));
