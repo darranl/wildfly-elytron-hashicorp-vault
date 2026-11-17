@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.StringTokenizer;
 
 import org.wildfly.security.credential.store.CredentialStoreException;
 
@@ -112,56 +113,100 @@ class VaultPath {
 
         ROOT_LOGGER.debugf("Parsing vault %s: %s", requireKey ? "alias" : "path", input);
 
-        // Check if it's new format (contains ?, #, @, or starts with engine=)
-        boolean hasNewFormatIndicators = input.contains("?") || input.contains("#") ||
-                                         input.contains("@") || input.startsWith("engine=");
+        // Explicit prefixes reserve the new grammar. With compatibility enabled a dot alias wins
+        // over markers inside its literal key (including '?'), as it did in 1.0.1.Final.
+        int questionPos = input.indexOf('?');
+        int hashPos = input.indexOf('#');
+        boolean explicitFormat = input.startsWith("#") || ((input.startsWith("@") || input.startsWith("engine="))
+                && hashPos >= 0 && questionPos > hashPos);
+        // A mount can itself start with '@' or 'engine='. Reserve the complete modern header,
+        // rather than mistaking such a Final mount-qualified alias for an incomplete modern alias.
+        int end = input.length();
+        // String.split("\\."), used by Final, discarded trailing empty components.
+        while (end > 0 && input.charAt(end - 1) == '.') {
+            end--;
+        }
+        int lastDot = input.lastIndexOf('.', end - 1);
+        boolean legacyAlias = requireKey && !explicitFormat && lastDot >= 0
+                && (supportLegacyFormat || questionPos == -1);
+        if (legacyAlias) {
+            VaultAlias alias = legacyAlias(input.substring(0, lastDot), input.substring(lastDot + 1, end),
+                    defaultEngineType, defaultMountPath);
+            String replacement = "@" + encodePath(alias.getMountPath())
+                    + toAlias(alias.getSecretPath(), alias.getKeyPath());
+            if (!supportLegacyFormat) {
+                throw ROOT_LOGGER.legacyAliasFormatNotSupported(input, replacement);
+            }
+            if (alias.getLegacyQuery() == null) {
+                ROOT_LOGGER.legacyAliasFormatDeprecated(input, replacement);
+            } else {
+                ROOT_LOGGER.legacyAliasWithQueryDeprecated(input);
+            }
+            return resultClass.cast(alias);
+        }
 
-        // Extract key path if present (for VaultAlias)
         String path = input;
         String keyPath = null;
-        boolean legacyAliasFormatUsed = false;
-        int questionPos = input.indexOf('?');
-
         if (questionPos != -1) {
-            // New format with ? delimiter
             path = input.substring(0, questionPos);
             keyPath = input.substring(questionPos + 1);
         } else if (requireKey) {
-            // No ? found - check for legacy dot-separated format
-            if (!hasNewFormatIndicators) {
-                // No new format indicators - might be legacy format. The key is the part after the last dot,
-                // wherever that is. For "my.app/config", the secret is "my" and the literal key is "app/config".
-                int lastDot = input.lastIndexOf('.');
-                if (lastDot != -1) {
-                    if (supportLegacyFormat) {
-                        // Legacy format: secret.key or mount/secret.key (split on last dot)
-                        path = input.substring(0, lastDot);
-                        keyPath = input.substring(lastDot + 1);
-                        legacyAliasFormatUsed = true;
-
-                        // Convert to new format for logging
-                        String newFormat = toAlias(urlDecode(path), keyPath);
-                        ROOT_LOGGER.legacyAliasFormatDeprecated(input, newFormat);
-                    } else {
-                        // Legacy format detected but not supported
-                        String newFormat = toAlias(urlDecode(input.substring(0, lastDot)), input.substring(lastDot + 1));
-                        throw ROOT_LOGGER.legacyAliasFormatNotSupported(input, newFormat);
-                    }
-                } else {
-                    // No dot found - not valid legacy format either
-                    throw ROOT_LOGGER.missingQuestionDelimiterBeforeKeyPath(input);
-                }
-            } else {
-                // Has new format indicators but no ? - invalid
-                throw ROOT_LOGGER.missingQuestionDelimiterBeforeKeyPath(input);
-            }
+            throw ROOT_LOGGER.missingQuestionDelimiterBeforeKeyPath(input);
         }
+        return parsePathPart(path, keyPath, defaultEngineType, defaultMountPath, supportLegacyFormat, requireKey,
+                resultClass);
+    }
 
-        // Dot-separated aliases already identify a secret within the configured mount. Do not also
-        // interpret their path as the separate legacy mount/secret syntax used for path-only requests.
-        boolean allowLegacyPathFormat = supportLegacyFormat && !legacyAliasFormatUsed;
-        return parsePathPart(path, keyPath, defaultEngineType, defaultMountPath, allowLegacyPathFormat, requireKey,
-                legacyAliasFormatUsed, resultClass);
+    /**
+     * Convert the full wire path used by Final into decoded components for the current connector.
+     * Split the mount before decoding, preserve literal plus signs, and keep the key verbatim.
+     */
+    static VaultAlias legacyAlias(String path, String key, String engineType, String defaultMountPath)
+            throws CredentialStoreException {
+        // Both driver generations tokenize the raw full path before URI handling. Normalize here
+        // too so cache identity/eviction agrees with the route, including repeated leading slashes.
+        boolean trailingSlash = path.endsWith("/");
+        StringTokenizer tokens = new StringTokenizer(path, "/");
+        StringBuilder normalized = new StringBuilder();
+        while (tokens.hasMoreTokens()) {
+            if (normalized.length() > 0) {
+                normalized.append('/');
+            }
+            normalized.append(tokens.nextToken());
+        }
+        if (trailingSlash) {
+            normalized.append('/');
+        }
+        path = normalized.toString();
+
+        // Fragments never reach Vault, but queries can select a KV v2 secret version. Split
+        // before percent decoding: encoded %3F and %23 are literal characters in a secret name.
+        int fragment = path.indexOf('#');
+        if (fragment >= 0) {
+            path = path.substring(0, fragment);
+        }
+        String query = null;
+        int question = path.indexOf('?');
+        if (question >= 0) {
+            query = path.substring(question + 1);
+            path = path.substring(0, question);
+        }
+        while (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        String mount = defaultMountPath;
+        int slash = path.indexOf('/');
+        if (slash >= 0) {
+            mount = path.substring(0, slash);
+            path = path.substring(slash + 1);
+        }
+        return VaultAlias.createWithLiteralKey(engineType, legacyPathDecode(mount), legacyPathDecode(path), key)
+                .withLegacyQuery(query);
+    }
+
+    private static String legacyPathDecode(String path) {
+        // URLDecoder uses form semantics; '+' in an HTTP path was a literal plus in Final.
+        return urlDecode(path.replace("+", "%2B"));
     }
 
     /**
@@ -170,7 +215,7 @@ class VaultPath {
     @SuppressWarnings("unchecked")
     private static <T extends VaultPath> T parsePathPart(String path, String keyPath, String defaultEngineType,
                                                           String defaultMountPath, boolean supportLegacyFormat,
-                                                          boolean requireKey, boolean legacyKey, Class<T> resultClass)
+                                                          boolean requireKey, Class<T> resultClass)
             throws CredentialStoreException {
         if (path == null || path.isEmpty()) {
             throw ROOT_LOGGER.aliasCannotBeNullOrEmpty();
@@ -272,9 +317,7 @@ class VaultPath {
             }
             // New format: split on the raw (still encoded) key path so that an encoded %2F stays inside a
             // segment as a literal slash while an unencoded / separates nested segments.
-            // Legacy keys were passed verbatim to the data map in 1.0.1.Final. Keep the whole key as one
-            // segment: neither a slash nor a percent escape changes its meaning.
-            String[] rawSegments = legacyKey ? new String[] {keyPath} : keyPath.split("/", -1);
+            String[] rawSegments = keyPath.split("/", -1);
             if (rawSegments.length > 1) {
                 for (String rawSegment : rawSegments) {
                     if (rawSegment.isEmpty()) {
@@ -284,7 +327,7 @@ class VaultPath {
             }
             keyPathSegments = new ArrayList<>(rawSegments.length);
             for (String rawSegment : rawSegments) {
-                keyPathSegments.add(legacyKey ? rawSegment : urlDecode(rawSegment));
+                keyPathSegments.add(urlDecode(rawSegment));
             }
         } else if (requireKey) {
             throw ROOT_LOGGER.keyPathCannotBeEmpty(path);

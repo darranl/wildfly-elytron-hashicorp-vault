@@ -422,8 +422,8 @@ public class VaultAliasParsingTestCase {
 
         assertNotNull(alias);
         assertEquals("KVv2", alias.getEngineType());
-        assertEquals("secret", alias.getMountPath());
-        assertEquals("myapp/db", alias.getSecretPath());
+        assertEquals("myapp", alias.getMountPath());
+        assertEquals("db", alias.getSecretPath());
         assertEquals("password", alias.getKeyPath());
     }
 
@@ -496,7 +496,8 @@ public class VaultAliasParsingTestCase {
 
         // the last dot is the one that counts, so an earlier dot stays in the secret path
         VaultAlias twoDots = VaultAlias.parse("x.y/z.w/v", "KVv2", "secret", true);
-        assertEquals("x.y/z", twoDots.getSecretPath());
+        assertEquals("x.y", twoDots.getMountPath());
+        assertEquals("z", twoDots.getSecretPath());
         assertEquals(List.of("w/v"), twoDots.getKeyPathSegments());
     }
 
@@ -513,8 +514,8 @@ public class VaultAliasParsingTestCase {
         VaultAlias alias = VaultAlias.parse(
             "my.app/config.password", "KVv2", "secret", true);
 
-        assertEquals("secret", alias.getMountPath());
-        assertEquals("my.app/config", alias.getSecretPath());
+        assertEquals("my.app", alias.getMountPath());
+        assertEquals("config", alias.getSecretPath());
         assertEquals("password", alias.getKeyPath());
     }
 
@@ -527,7 +528,8 @@ public class VaultAliasParsingTestCase {
         VaultAlias alias = VaultAlias.parse(
             "app/config.pass%2Fword", "KVv2", "secret", true);
 
-        assertEquals("app/config", alias.getSecretPath());
+        assertEquals("app", alias.getMountPath());
+        assertEquals("config", alias.getSecretPath());
         assertEquals("pass%2Fword", alias.getKeyPath());
         assertEquals(List.of("pass%2Fword"), alias.getKeyPathSegments());
     }

@@ -97,8 +97,8 @@ public class BackwardsCompatibilityTestCase {
 
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
-        // Test simple legacy format: myapp/db.password
-        String legacyAlias = "myapp/db.password";
+        // Final aliases include the mount: secret/myapp/db.password
+        String legacyAlias = "secret/myapp/db.password";
         PasswordCredential credential = store.retrieve(legacyAlias, PasswordCredential.class, null, null, null);
 
         assertNotNull(credential, "Should retrieve credential using legacy format");
@@ -117,7 +117,7 @@ public class BackwardsCompatibilityTestCase {
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
         // Test that legacy format is rejected
-        String legacyAlias = "myapp/db.password";
+        String legacyAlias = "secret/myapp/db.password";
         CredentialStoreException exception = assertThrows(
             CredentialStoreException.class,
             () -> store.retrieve(legacyAlias, PasswordCredential.class, null, null, null),
@@ -127,7 +127,7 @@ public class BackwardsCompatibilityTestCase {
         // Verify error message includes equivalent new format
         String errorMessage = exception.getMessage();
         assertTrue(errorMessage.contains("not supported"), "Error should mention format not supported");
-        assertTrue(errorMessage.contains("myapp/db?password") || errorMessage.contains("#myapp/db?password"),
+        assertTrue(errorMessage.contains("@secret#myapp/db?password"),
             "Error should include equivalent new format");
     }
 
@@ -143,7 +143,7 @@ public class BackwardsCompatibilityTestCase {
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
         // Test that legacy format is rejected by default
-        String legacyAlias = "myapp/db.password";
+        String legacyAlias = "secret/myapp/db.password";
         assertThrows(
             CredentialStoreException.class,
             () -> store.retrieve(legacyAlias, PasswordCredential.class, null, null, null),
@@ -163,7 +163,7 @@ public class BackwardsCompatibilityTestCase {
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
         // Test legacy format
-        String legacyAlias = "myapp/db.password";
+        String legacyAlias = "secret/myapp/db.password";
         PasswordCredential legacyCredential = store.retrieve(legacyAlias, PasswordCredential.class, null, null, null);
         assertNotNull(legacyCredential, "Should retrieve using legacy format");
 
@@ -228,7 +228,7 @@ public class BackwardsCompatibilityTestCase {
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
         // Step 1: Use legacy format (existing configuration)
-        String legacyAlias = "legacy/test.value";
+        String legacyAlias = "secret/legacy/test.value";
         PasswordCredential legacyCredential = store.retrieve(legacyAlias, PasswordCredential.class, null, null, null);
         assertNotNull(legacyCredential, "Legacy format should work during migration");
 
@@ -314,7 +314,7 @@ public class BackwardsCompatibilityTestCase {
 
         HashicorpVaultCredentialStore store = createAndInitializeStore(attributes);
 
-        String legacyAlias = "myapp/db.password";
+        String legacyAlias = "secret/myapp/db.password";
 
         // First retrieval - should fetch from Vault
         PasswordCredential credential1 = store.retrieve(legacyAlias, PasswordCredential.class, null, null, null);

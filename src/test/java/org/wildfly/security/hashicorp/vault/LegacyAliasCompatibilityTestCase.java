@@ -56,6 +56,9 @@ public class LegacyAliasCompatibilityTestCase {
                 Arguments.of("a//b", "a%2F%2Fb"),
                 Arguments.of("/", "%2F"),
                 Arguments.of("//", "%2F%2F"),
+                Arguments.of("a@b", "a%40b"),
+                Arguments.of("a#b", "a%23b"),
+                Arguments.of("a?b", "a%3Fb"),
                 Arguments.of("café", "caf%C3%A9"));
     }
 
@@ -133,8 +136,12 @@ public class LegacyAliasCompatibilityTestCase {
                 () -> VaultAlias.parse("#app?trailing/", "KVv2", "secret", legacySupport));
     }
 
+    static Stream<Arguments> unambiguousLiteralKeys() {
+        return literalKeys().filter(args -> !((String) args.get()[0]).contains("?"));
+    }
+
     @ParameterizedTest
-    @MethodSource("literalKeys")
+    @MethodSource("unambiguousLiteralKeys")
     void testRejectedLegacyAliasSuggestsEquivalentNewAlias(String key, String encodedKey) {
         CredentialStoreException exception = assertThrows(CredentialStoreException.class,
                 () -> VaultAlias.parse("app." + key, "KVv2", "secret", false));
@@ -190,6 +197,35 @@ public class LegacyAliasCompatibilityTestCase {
         CredentialStoreException exception = assertThrows(CredentialStoreException.class,
                 () -> VaultAlias.parse("app%20name.key/part", "KVv2", "secret", false));
         assertTrue(exception.getMessage().contains("#app%20name?key%2Fpart"), exception.getMessage());
+    }
+
+    @Test
+    void testAmbiguousAliasUsesLegacyOnlyWhenEnabled() throws Exception {
+        VaultAlias legacy = VaultAlias.parse("secret/app.a?b", "KVv2", "other", true);
+        assertEquals("secret", legacy.getMountPath());
+        assertEquals("app", legacy.getSecretPath());
+        assertEquals(List.of("a?b"), legacy.getKeyPathSegments());
+        VaultAlias modern = VaultAlias.parse("secret/app.a?b", "KVv2", "other", false);
+        assertEquals("other", modern.getMountPath());
+        assertEquals("secret/app.a", modern.getSecretPath());
+        assertEquals(List.of("b"), modern.getKeyPathSegments());
+        for (boolean enabled : List.of(false, true)) {
+            assertEquals(legacy, VaultAlias.parse("@secret#app?a%3Fb", "KVv2", "other", enabled));
+            assertEquals(modern, VaultAlias.parse("@other#secret/app.a?b", "KVv2", "other", enabled));
+        }
+    }
+
+    @Test
+    void testQueryRemainsDistinctFromUnversionedAlias() throws Exception {
+        VaultAlias versioned = VaultAlias.parse("secret/app?version=1.key", "KVv2", "other", true);
+        VaultAlias unversioned = VaultAlias.parse("@secret#app?key");
+        assertNotEquals(versioned, unversioned);
+        assertEquals("version=1", versioned.getLegacyQuery());
+        assertEquals("app", versioned.getSecretPath());
+        assertEquals("secret/app?version=1", connector(seed(), new AtomicInteger()).constructVaultPath(versioned));
+        VaultAlias encodedQuestion = VaultAlias.parse("secret/app%3Fversion=1.key", "KVv2", "other", true);
+        assertNull(encodedQuestion.getLegacyQuery());
+        assertEquals("app?version=1", encodedQuestion.getSecretPath());
     }
 
     private static VaultConnector connector(Map<String, Object> data, AtomicInteger reads) {

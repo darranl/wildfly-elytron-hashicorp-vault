@@ -113,7 +113,9 @@ public class VaultCredentialSource implements CredentialSource {
      *   <li>{@link #VaultCredentialSource(VaultConnector, String, String, String, String)} - with explicit components</li>
      * </ul>
      * <p>
-     * This constructor preserves the literal key lookup used in 1.0.1.Final. The conversion assumes:
+     * This constructor preserves the mount-qualified HTTP path and literal key lookup used in 1.0.1.Final.
+     * Percent escapes in the path are decoded once; a literal plus stays a plus. HTTP queries, including
+     * KV v2 version selection, are preserved. The conversion assumes:
      * <ul>
      *   <li>Default engine type: KVv2</li>
      *   <li>Default mount path: secret</li>
@@ -140,20 +142,9 @@ public class VaultCredentialSource implements CredentialSource {
 
         this.vaultConnector = vaultConnector;
 
-        // Convert legacy path/key to new alias format
-        // The secretPath in legacy format includes the mount path (e.g., "secret/testing1")
         try {
-            // Extract mount path and secret path from legacy format
-            String mountPath = VaultConstants.DEFAULT_MOUNT_PATH; // default
-            String actualSecretPath = secretPath;
-
-            if (secretPath.contains("/")) {
-                int firstSlash = secretPath.indexOf('/');
-                mountPath = secretPath.substring(0, firstSlash);
-                actualSecretPath = secretPath.substring(firstSlash + 1);
-            }
-
-            this.alias = VaultAlias.createWithLiteralKey(VaultConstants.ENGINE_TYPE_KV_V2, mountPath, actualSecretPath, secretKey);
+            this.alias = VaultPath.legacyAlias(secretPath, secretKey, VaultConstants.ENGINE_TYPE_KV_V2,
+                    VaultConstants.DEFAULT_MOUNT_PATH);
         } catch (CredentialStoreException e) {
             throw new IllegalArgumentException("Failed to convert legacy path/key to alias format: " + e.getMessage(), e);
         }
